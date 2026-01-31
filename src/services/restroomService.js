@@ -1,14 +1,17 @@
 import {
   collection,
   getDocs,
+  addDoc,
   query,
   orderBy,
   onSnapshot,
+  serverTimestamp,
 } from 'firebase/firestore';
-import { db, isConfigured } from '../config/firebase.js';
+import { db, isConfigured, AUTO_APPROVE_SUBMISSIONS } from '../config/firebase.js';
 import { mockRestrooms } from '../data/mockData.js';
 
 const RESTROOMS_COLLECTION = 'restrooms';
+const PENDING_COLLECTION = 'pending_restrooms';
 
 // Cache for offline support
 let cachedRestrooms = null;
@@ -144,3 +147,56 @@ export const fetchRestroomsInBounds = async (bounds) => {
 export const getCachedRestrooms = () => {
   return cachedRestrooms || mockRestrooms;
 };
+
+/**
+ * Add a new restroom to Firestore
+ * If AUTO_APPROVE_SUBMISSIONS is true, adds directly to restrooms collection
+ * Otherwise, adds to pending_restrooms for moderation
+ * @param {Object} restroomData - The restroom data to add
+ * @returns {Promise<{success: boolean, id?: string, error?: string, autoApproved: boolean}>}
+ */
+export const addRestroom = async (restroomData) => {
+  if (!isFirebaseConfigured()) {
+    return {
+      success: false,
+      error: 'Firebase not configured',
+      autoApproved: false,
+    };
+  }
+
+  try {
+    const collection_name = AUTO_APPROVE_SUBMISSIONS
+      ? RESTROOMS_COLLECTION
+      : PENDING_COLLECTION;
+
+    const dataToAdd = {
+      ...restroomData,
+      submittedAt: serverTimestamp(),
+      submittedBy: 'anonymous', // For now, until auth is implemented
+      ...(AUTO_APPROVE_SUBMISSIONS ? {} : { status: 'pending' }),
+    };
+
+    console.log(`[RestroomService] Adding to ${collection_name}:`, dataToAdd.name);
+    const docRef = await addDoc(collection(db, collection_name), dataToAdd);
+
+    console.log(`[RestroomService] Added with ID: ${docRef.id}`);
+    return {
+      success: true,
+      id: docRef.id,
+      autoApproved: AUTO_APPROVE_SUBMISSIONS,
+    };
+  } catch (error) {
+    console.error('[RestroomService] Error adding restroom:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to add restroom',
+      autoApproved: false,
+    };
+  }
+};
+
+/**
+ * Check if auto-approval is enabled
+ * @returns {boolean}
+ */
+export const isAutoApproveEnabled = () => AUTO_APPROVE_SUBMISSIONS;

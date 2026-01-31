@@ -23,6 +23,7 @@ import { customMapStyle } from '../styles/mapStyle';
 import { searchPlaces, getPlaceDetails } from '../services/placesService';
 import { subscribeToRestrooms, getCachedRestrooms } from '../services/restroomService';
 import FilterModal, { AMENITY_OPTIONS, CLEANLINESS_OPTIONS, DISTANCE_OPTIONS } from '../components/FilterModal';
+import AddRestroomScreen from './AddRestroomScreen';
 import { formatDistance, addDistanceToRestrooms } from '../utils/distance';
 import Constants from 'expo-constants';
 
@@ -61,6 +62,7 @@ export default function MapScreen() {
   const [restrooms, setRestrooms] = useState([]);
   const [dataError, setDataError] = useState(null);
   const [showFilterModal, setShowFilterModal] = useState(false);
+  const [showAddRestroomModal, setShowAddRestroomModal] = useState(false);
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState(null);
@@ -520,9 +522,18 @@ export default function MapScreen() {
         </View>
       )}
 
+      {/* Add Restroom FAB */}
+      <TouchableOpacity
+        style={styles.addRestroomFab}
+        onPress={() => setShowAddRestroomModal(true)}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.addRestroomFabIcon}>+</Text>
+      </TouchableOpacity>
+
       {/* Current Location Button */}
       {userLocation && (
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.currentLocationButton}
           onPress={goToCurrentLocation}
         >
@@ -687,6 +698,17 @@ export default function MapScreen() {
         resultCount={filteredRestrooms.length}
         hasUserLocation={!!userLocation}
         onClearAll={clearAllFilters}
+      />
+
+      {/* Add Restroom Modal */}
+      <AddRestroomScreen
+        visible={showAddRestroomModal}
+        onClose={() => setShowAddRestroomModal(false)}
+        initialLocation={location}
+        onSuccess={() => {
+          // Restrooms will auto-update via the Firestore subscription
+          console.log('[MapScreen] Restroom added successfully');
+        }}
       />
     </View>
   );
@@ -858,6 +880,28 @@ const styles = StyleSheet.create({
   },
   errorText: { flex: 1, color: '#991B1B', fontSize: 14 },
   errorDismiss: { color: '#991B1B', fontSize: 18, paddingLeft: 12 },
+  addRestroomFab: {
+    position: 'absolute',
+    bottom: 120,
+    right: 16,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#8B7355',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  addRestroomFabIcon: {
+    fontSize: 32,
+    color: '#FFFFFF',
+    fontWeight: '300',
+    marginTop: -2,
+  },
   currentLocationButton: {
     position: 'absolute',
     bottom: 40,

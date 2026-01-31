@@ -1,5 +1,6 @@
 import { initializeApp, getApps } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 
 // Firebase configuration from environment variables
 const firebaseConfig = {
@@ -26,18 +27,24 @@ if (missingVars.length > 0) {
 const isConfigured = firebaseConfig.projectId &&
   firebaseConfig.projectId !== 'your_project_id';
 
+// Auto-approve submissions for MVP (set to false for moderation)
+const AUTO_APPROVE_SUBMISSIONS = true;
+
 // Initialize Firebase only if not already initialized
 let app;
 let db;
+let storage;
 
 try {
   app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
   db = getFirestore(app);
+  storage = getStorage(app);
 } catch (error) {
   console.error('Firebase initialization failed:', error.message);
   // Create placeholder to prevent crashes
   db = null;
+  storage = null;
 }
 
-export { db, isConfigured };
+export { db, storage, isConfigured, AUTO_APPROVE_SUBMISSIONS };
 export default app;
