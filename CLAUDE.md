@@ -41,9 +41,22 @@ npm run web          # Start in web browser
 }
 ```
 
+## Google Places API
+
+The search bar uses Google Places Autocomplete API with fallback to a hardcoded city list.
+
+**Setup:**
+1. Copy `.env.example` to `.env`
+2. Add your Google Places API key to `.env`
+3. Restart Expo with `npx expo start --clear`
+
+**Service location:** `src/services/placesService.js`
+- `searchPlaces(query)` - Autocomplete search (debounced, 3+ chars)
+- `getPlaceDetails(placeId)` - Fetch coordinates from place_id
+- Falls back to hardcoded cities if API unavailable
+
 ## Important Notes
 
 - Uses Google Maps provider (`PROVIDER_GOOGLE`) - requires API key for production
 - Custom map styling defined in `src/styles/mapStyle.js`
-- MapScreen uses hardcoded city list for search (production should use Google Places API)
 - Default location is York, SC (34.9943, -81.2423)

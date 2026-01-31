@@ -1,12 +1,97 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  ActivityIndicator,
+  Animated,
+  PanResponder,
+  TouchableOpacity,
+  Dimensions,
+  Image,
+  ScrollView,
+  TextInput,
+  FlatList,
+  Keyboard,
+} from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { mockRestrooms } from '../data/mockData';
+import { customMapStyle } from '../styles/mapStyle';
+import { searchPlaces, getPlaceDetails } from '../services/placesService';
 
-export default function MapScreen({ navigation }) {
-  const [location, setLocation] = useState(null);
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+const DETAIL_SHEET_HEIGHT = SCREEN_HEIGHT * 0.75;
+
+export default function MapScreen() {
+  const [location, setLocation] = useState({
+    latitude: 34.9943,
+    longitude: -81.2423,
+    latitudeDelta: 0.05,
+    longitudeDelta: 0.05,
+  });
+  const [userLocation, setUserLocation] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [selectedRestroom, setSelectedRestroom] = useState(null);
+  const [showDetail, setShowDetail] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [showSearchResults, setShowSearchResults] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
+  
+  const mapRef = useRef(null);
+  const detailPanY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+  const [scrollEnabled, setScrollEnabled] = useState(true);
+  const searchDebounceRef = useRef(null);
+
+  const detailPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return gestureState.dy > 10 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
+      },
+      onPanResponderGrant: () => setScrollEnabled(false),
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dy > 0) detailPanY.setValue(gestureState.dy);
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        setScrollEnabled(true);
+        if (gestureState.dy > 100 || gestureState.vy > 0.5) {
+          closeDetail();
+        } else {
+          Animated.spring(detailPanY, {
+            toValue: 0,
+            useNativeDriver: false,
+            tension: 50,
+            friction: 8,
+          }).start();
+        }
+      },
+    })
+  ).current;
+
+  const openDetail = (restroom) => {
+    setSelectedRestroom(restroom);
+    setShowDetail(true);
+    detailPanY.setValue(SCREEN_HEIGHT);
+    Animated.spring(detailPanY, {
+      toValue: 0,
+      useNativeDriver: false,
+      tension: 50,
+      friction: 9,
+    }).start();
+  };
+
+  const closeDetail = () => {
+    Animated.timing(detailPanY, {
+      toValue: SCREEN_HEIGHT,
+      duration: 300,
+      useNativeDriver: false,
+    }).start(() => {
+      setShowDetail(false);
+      setSelectedRestroom(null);
+    });
+  };
 
   useEffect(() => {
     getCurrentLocation();
@@ -14,52 +99,111 @@ export default function MapScreen({ navigation }) {
 
   const getCurrentLocation = async () => {
     try {
-      // Request location permissions
       const { status } = await Location.requestForegroundPermissionsAsync();
-      
-      if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'Location permission is needed to show nearby restrooms');
-        // Default to NYC if permission denied
-        setLocation({
-          latitude: 40.7580,
-          longitude: -73.9855,
+      if (status === 'granted') {
+        const currentLocation = await Location.getCurrentPositionAsync({});
+        const coords = {
+          latitude: currentLocation.coords.latitude,
+          longitude: currentLocation.coords.longitude,
           latitudeDelta: 0.05,
           longitudeDelta: 0.05,
-        });
-        setLoading(false);
-        return;
+        };
+        setLocation(coords);
+        setUserLocation(coords);
       }
-
-      // Get current location
-      const currentLocation = await Location.getCurrentPositionAsync({});
-      setLocation({
-        latitude: currentLocation.coords.latitude,
-        longitude: currentLocation.coords.longitude,
-        latitudeDelta: 0.05,
-        longitudeDelta: 0.05,
-      });
       setLoading(false);
     } catch (error) {
       console.error('Error getting location:', error);
-      // Default to NYC if error
-      setLocation({
-        latitude: 40.7580,
-        longitude: -73.9855,
-        latitudeDelta: 0.05,
-        longitudeDelta: 0.05,
-      });
       setLoading(false);
     }
   };
 
-  const onMarkerPress = (restroom) => {
-    navigation.navigate('RestroomDetail', { restroom });
+  const goToCurrentLocation = () => {
+    if (userLocation && mapRef.current) {
+      mapRef.current.animateToRegion(userLocation, 1000);
+    }
+  };
+
+  const searchLocation = (text) => {
+    setSearchQuery(text);
+
+    if (text.length < 3) {
+      setSearchResults([]);
+      setShowSearchResults(false);
+      setSearchLoading(false);
+      return;
+    }
+
+    // Debounce API calls
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+    }
+
+    setSearchLoading(true);
+    searchDebounceRef.current = setTimeout(async () => {
+      const results = await searchPlaces(text);
+      setSearchResults(results);
+      setShowSearchResults(results.length > 0);
+      setSearchLoading(false);
+    }, 300);
+  };
+
+  const selectCity = async (place) => {
+    setShowSearchResults(false);
+    setSearchQuery(place.name);
+    Keyboard.dismiss();
+
+    let coords = place.coordinates;
+
+    // If using Google Places API (has placeId), fetch coordinates
+    if (place.placeId && !coords) {
+      setSearchLoading(true);
+      coords = await getPlaceDetails(place.placeId);
+      setSearchLoading(false);
+    }
+
+    if (coords) {
+      const newLocation = {
+        latitude: coords.lat,
+        longitude: coords.lng,
+        latitudeDelta: 0.05,
+        longitudeDelta: 0.05,
+      };
+      setLocation(newLocation);
+
+      if (mapRef.current) {
+        mapRef.current.animateToRegion(newLocation, 1000);
+      }
+    }
+  };
+
+  const renderStars = (rating) => {
+    const stars = [];
+    const fullStars = Math.floor(rating);
+    const hasHalf = rating % 1 >= 0.5;
+    for (let i = 0; i < 5; i++) {
+      if (i < fullStars) stars.push(<Text key={i} style={styles.starFilled}>★</Text>);
+      else if (i === fullStars && hasHalf) stars.push(<Text key={i} style={styles.starHalf}>★</Text>);
+      else stars.push(<Text key={i} style={styles.starEmpty}>★</Text>);
+    }
+    return stars;
+  };
+
+  const amenityInfo = {
+    toilets: { icon: '🚽', label: 'Toilets' },
+    urinals: { icon: '🧍', label: 'Urinals' },
+    accessible: { icon: '♿️', label: 'Accessible' },
+    changing_table: { icon: '👶', label: 'Changing Table' },
+    family: { icon: '👨‍👩‍👧', label: 'Family Room' },
+    sinks: { icon: '💧', label: 'Sinks' },
+    paper_towels: { icon: '🧻', label: 'Paper Towels' },
+    hand_dryer: { icon: '💨', label: 'Hand Dryer' },
   };
 
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
+        <ActivityIndicator size="large" color="#FF385C" />
         <Text style={styles.loadingText}>Finding your location...</Text>
       </View>
     );
@@ -68,11 +212,15 @@ export default function MapScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <MapView
+        ref={mapRef}
         style={styles.map}
         provider={PROVIDER_GOOGLE}
+        customMapStyle={customMapStyle}
         initialRegion={location}
         showsUserLocation={true}
-        showsMyLocationButton={true}
+        showsMyLocationButton={false}
+        showsCompass={false}
+        toolbarEnabled={false}
       >
         {mockRestrooms.map((restroom) => (
           <Marker
@@ -81,76 +229,339 @@ export default function MapScreen({ navigation }) {
               latitude: restroom.latitude,
               longitude: restroom.longitude,
             }}
-            title={restroom.name}
-            description={`Rating: ${restroom.rating} ⭐ | ${restroom.reviews} reviews`}
-            onCalloutPress={() => onMarkerPress(restroom)}
+            onPress={() => openDetail(restroom)}
+            tracksViewChanges={false}
           >
-            <View style={styles.markerContainer}>
-              <Text style={styles.markerText}>🚽</Text>
+            <View style={[
+              styles.marker,
+              selectedRestroom?.id === restroom.id && styles.markerSelected
+            ]}>
+              <View style={styles.markerInner}>
+                <Text style={styles.markerIcon}>🚽</Text>
+              </View>
             </View>
           </Marker>
         ))}
       </MapView>
 
-      <View style={styles.legendContainer}>
-        <Text style={styles.legendText}>🚽 = Public Restroom</Text>
-        <Text style={styles.legendSubtext}>Tap a marker for details</Text>
+      {/* Search Bar */}
+      <View style={styles.searchContainer}>
+        <View style={styles.searchBar}>
+          <Text style={styles.searchIcon}>🔍</Text>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search city..."
+            value={searchQuery}
+            onChangeText={searchLocation}
+            onFocus={() => setShowSearchResults(searchResults.length > 0)}
+            placeholderTextColor="#717171"
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity 
+              onPress={() => {
+                setSearchQuery('');
+                setSearchResults([]);
+                setShowSearchResults(false);
+              }}
+              style={styles.clearButton}
+            >
+              <Text style={styles.clearButtonText}>✕</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Search Results Dropdown */}
+        {(showSearchResults || searchLoading) && (
+          <View style={styles.searchResults}>
+            {searchLoading && searchResults.length === 0 ? (
+              <View style={styles.searchLoadingContainer}>
+                <ActivityIndicator size="small" color="#717171" />
+              </View>
+            ) : (
+              <FlatList
+                data={searchResults}
+                keyExtractor={(item, index) => item.placeId || index.toString()}
+                keyboardShouldPersistTaps="handled"
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.searchResultItem}
+                    onPress={() => selectCity(item)}
+                  >
+                    <Text style={styles.locationIcon}>📍</Text>
+                    <View style={styles.searchResultTextContainer}>
+                      <Text style={styles.searchResultText}>{item.mainText}</Text>
+                      {item.secondaryText ? (
+                        <Text style={styles.searchResultSecondary}>{item.secondaryText}</Text>
+                      ) : null}
+                    </View>
+                  </TouchableOpacity>
+                )}
+              />
+            )}
+          </View>
+        )}
       </View>
+
+      {/* Current Location Button */}
+      {userLocation && (
+        <TouchableOpacity 
+          style={styles.currentLocationButton}
+          onPress={goToCurrentLocation}
+        >
+          <Text style={styles.currentLocationIcon}>📍</Text>
+        </TouchableOpacity>
+      )}
+
+      {showDetail && selectedRestroom && (
+        <Animated.View 
+          style={[
+            styles.detailSheet,
+            { transform: [{ translateY: detailPanY }] }
+          ]}
+        >
+          <View style={styles.detailHandleContainer} {...detailPanResponder.panHandlers}>
+            <View style={styles.handle} />
+          </View>
+
+          <ScrollView
+            style={styles.detailScroll}
+            showsVerticalScrollIndicator={false}
+            scrollEnabled={scrollEnabled}
+            bounces={true}
+          >
+            <View style={styles.imageContainer}>
+              <Image
+                source={{ uri: selectedRestroom.imageUrl || 'https://via.placeholder.com/400x300/F5F5F5/999?text=No+Image' }}
+                style={styles.detailImage}
+              />
+            </View>
+
+            <View style={styles.detailContent}>
+              <View style={styles.detailHeader}>
+                <Text style={styles.detailTitle}>{selectedRestroom.name}</Text>
+                <View style={styles.detailRatingRow}>
+                  <View style={styles.starsContainer}>
+                    {renderStars(selectedRestroom.rating)}
+                    <Text style={styles.ratingNumber}>{selectedRestroom.rating.toFixed(1)}</Text>
+                  </View>
+                  <Text style={styles.reviewCount}>({selectedRestroom.reviews} reviews)</Text>
+                </View>
+                <Text style={styles.detailAddress}>{selectedRestroom.address}</Text>
+              </View>
+
+              <View style={styles.divider} />
+
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Cleanliness</Text>
+                  <Text style={styles.cleanlinessLabel}>
+                    {selectedRestroom.cleanliness === 5 ? 'Spotless ✨' :
+                     selectedRestroom.cleanliness === 4 ? 'Very Clean' :
+                     selectedRestroom.cleanliness === 3 ? 'Clean' : 'Fair'}
+                  </Text>
+                </View>
+                <View style={styles.cleanlinessBar}>
+                  {[1, 2, 3, 4, 5].map((level) => (
+                    <View
+                      key={level}
+                      style={[
+                        styles.cleanlinessSegment,
+                        level <= selectedRestroom.cleanliness && styles.cleanlinessActive,
+                      ]}
+                    />
+                  ))}
+                </View>
+              </View>
+
+              <View style={styles.divider} />
+
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>What this place offers</Text>
+                <View style={styles.amenitiesGrid}>
+                  {selectedRestroom.amenities.map((amenity, index) => {
+                    const info = amenityInfo[amenity] || { icon: '✓', label: amenity };
+                    return (
+                      <View key={index} style={styles.amenityItem}>
+                        <Text style={styles.amenityIcon}>{info.icon}</Text>
+                        <Text style={styles.amenityText}>{info.label}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+
+              <View style={styles.divider} />
+
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Recent reviews</Text>
+                
+                <View style={styles.reviewItem}>
+                  <View style={styles.reviewerInfo}>
+                    <View style={styles.avatar}><Text style={styles.avatarText}>S</Text></View>
+                    <View>
+                      <Text style={styles.reviewerName}>Sarah</Text>
+                      <Text style={styles.reviewDate}>December 2025</Text>
+                    </View>
+                  </View>
+                  <View style={styles.reviewStars}>{renderStars(5)}</View>
+                  <Text style={styles.reviewText}>
+                    Exceptionally clean! The changing table was a lifesaver.
+                  </Text>
+                </View>
+
+                <View style={styles.reviewItem}>
+                  <View style={styles.reviewerInfo}>
+                    <View style={styles.avatar}><Text style={styles.avatarText}>J</Text></View>
+                    <View>
+                      <Text style={styles.reviewerName}>James</Text>
+                      <Text style={styles.reviewDate}>December 2025</Text>
+                    </View>
+                  </View>
+                  <View style={styles.reviewStars}>{renderStars(4)}</View>
+                  <Text style={styles.reviewText}>Very good facilities. Easy to find.</Text>
+                </View>
+
+                <TouchableOpacity style={styles.showAllReviews}>
+                  <Text style={styles.showAllText}>Show all {selectedRestroom.reviews} reviews</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={{ height: 120 }} />
+            </View>
+          </ScrollView>
+
+          <View style={styles.detailBottomBar}>
+            <View style={styles.priceSection}>
+              <Text style={styles.priceLabel}>Free</Text>
+              <Text style={styles.priceSubtext}>Public access</Text>
+            </View>
+            <TouchableOpacity style={styles.directionsButton}>
+              <Text style={styles.directionsButtonText}>Get Directions</Text>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  container: { flex: 1, backgroundColor: '#F5F5F5' },
+  map: { width: '100%', height: '100%' },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F5F5F5' },
+  loadingText: { marginTop: 12, fontSize: 16, color: '#717171', fontWeight: '500' },
+  searchContainer: { position: 'absolute', top: 30, left: 16, right: 16, zIndex: 10 },
+  searchBar: { 
+    flexDirection: 'row', 
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 32,
+    paddingHorizontal: 20, 
+    paddingVertical: 16,
+    shadowColor: '#000', 
+    shadowOffset: { width: 0, height: 2 }, 
+    shadowOpacity: 0.15, 
+    shadowRadius: 8, 
+    elevation: 5,
   },
-  map: {
-    width: '100%',
-    height: '100%',
+  searchIcon: { fontSize: 18, marginRight: 12, color: '#717171' },
+  searchInput: { 
+    flex: 1, 
+    fontSize: 16, 
+    color: '#222222',
+    fontWeight: '500',
+    padding: 0,
   },
-  loadingContainer: {
-    flex: 1,
+  clearButton: { padding: 4 },
+  clearButtonText: { fontSize: 18, color: '#717171' },
+  searchResults: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    marginTop: 8,
+    marginHorizontal: 16,
+    maxHeight: 300,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  searchResultItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EBEBEB',
+  },
+  locationIcon: { fontSize: 16, marginRight: 12 },
+  searchResultTextContainer: { flex: 1 },
+  searchResultText: { fontSize: 16, color: '#222222' },
+  searchResultSecondary: { fontSize: 14, color: '#717171', marginTop: 2 },
+  searchLoadingContainer: { padding: 20, alignItems: 'center' },
+  currentLocationButton: {
+    position: 'absolute',
+    bottom: 40,
+    right: 16,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fff',
-  },
-  loadingText: {
-    marginTop: 10,
-    fontSize: 16,
-    color: '#666',
-  },
-  markerContainer: {
-    backgroundColor: 'white',
-    padding: 5,
-    borderRadius: 20,
-    borderWidth: 2,
-    borderColor: '#007AFF',
-  },
-  markerText: {
-    fontSize: 24,
-  },
-  legendContainer: {
-    position: 'absolute',
-    top: 50,
-    left: 10,
-    right: 10,
-    backgroundColor: 'white',
-    padding: 12,
-    borderRadius: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
-    shadowRadius: 3.84,
+    shadowRadius: 8,
     elevation: 5,
   },
-  legendText: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  legendSubtext: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 4,
-  },
+  currentLocationIcon: { fontSize: 24 },
+  marker: { alignItems: 'center' },
+  markerSelected: { transform: [{ scale: 1.2 }] },
+  markerInner: { backgroundColor: '#FFFFFF', padding: 8, borderRadius: 24, borderWidth: 2, borderColor: '#5D4037', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5 },
+  markerIcon: { fontSize: 20 },
+  detailSheet: { position: 'absolute', bottom: 0, left: 0, right: 0, height: DETAIL_SHEET_HEIGHT, backgroundColor: '#FFFFFF', borderTopLeftRadius: 16, borderTopRightRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 20 },
+  detailHandleContainer: { paddingTop: 8, paddingBottom: 8, alignItems: 'center', zIndex: 10 },
+  handle: { width: 32, height: 4, backgroundColor: '#DDDDDD', borderRadius: 2 },
+  detailScroll: { flex: 1 },
+  imageContainer: { paddingTop: 20, paddingHorizontal: 20 },
+  detailImage: { width: '100%', height: 260, backgroundColor: '#F5F5F5', borderRadius: 20 },
+  detailContent: { flex: 1 },
+  detailHeader: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 16 },
+  detailTitle: { fontSize: 26, fontWeight: '600', color: '#222222', marginBottom: 8, letterSpacing: -0.5 },
+  detailRatingRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  starsContainer: { flexDirection: 'row', alignItems: 'center', marginRight: 8 },
+  starFilled: { fontSize: 14, color: '#FF385C', marginRight: 1 },
+  starHalf: { fontSize: 14, color: '#FF385C', marginRight: 1 },
+  starEmpty: { fontSize: 14, color: '#DDDDDD', marginRight: 1 },
+  ratingNumber: { fontSize: 14, fontWeight: '600', color: '#222222', marginLeft: 6 },
+  reviewCount: { fontSize: 14, color: '#717171' },
+  detailAddress: { fontSize: 15, color: '#717171', lineHeight: 20 },
+  divider: { height: 1, backgroundColor: '#EBEBEB', marginHorizontal: 24, marginVertical: 24 },
+  section: { paddingHorizontal: 24 },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  sectionTitle: { fontSize: 22, fontWeight: '600', color: '#222222', marginBottom: 16 },
+  cleanlinessLabel: { fontSize: 14, fontWeight: '600', color: '#008489' },
+  cleanlinessBar: { flexDirection: 'row', gap: 4, height: 6 },
+  cleanlinessSegment: { flex: 1, backgroundColor: '#EBEBEB', borderRadius: 3 },
+  cleanlinessActive: { backgroundColor: '#008489' },
+  amenitiesGrid: { gap: 16 },
+  amenityItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
+  amenityIcon: { fontSize: 20, width: 32 },
+  amenityText: { fontSize: 16, color: '#222222', marginLeft: 8 },
+  reviewItem: { marginBottom: 32 },
+  reviewerInfo: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#222222', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  avatarText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
+  reviewerName: { fontSize: 16, fontWeight: '600', color: '#222222', marginBottom: 2 },
+  reviewDate: { fontSize: 14, color: '#717171' },
+  reviewStars: { flexDirection: 'row', marginBottom: 12 },
+  reviewText: { fontSize: 15, lineHeight: 24, color: '#222222' },
+  showAllReviews: { marginTop: 8, paddingVertical: 16, borderWidth: 1, borderColor: '#222222', borderRadius: 8, alignItems: 'center' },
+  showAllText: { fontSize: 16, fontWeight: '600', color: '#222222' },
+  detailBottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 16, backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#EBEBEB', shadowColor: '#000', shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.1, shadowRadius: 8 },
+  priceSection: { flex: 1 },
+  priceLabel: { fontSize: 16, fontWeight: '600', color: '#222222' },
+  priceSubtext: { fontSize: 14, color: '#717171' },
+  directionsButton: { backgroundColor: '#FF385C', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 8 },
+  directionsButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
 });
