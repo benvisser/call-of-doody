@@ -13,11 +13,19 @@ export default function App() {
         initialRouteName="Map"
         screenOptions={{
           headerStyle: {
-            backgroundColor: '#007AFF',
+            backgroundColor: '#8B7355',
+            borderBottomLeftRadius: 20,
+            borderBottomRightRadius: 20,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.2,
+            shadowRadius: 8,
+            elevation: 8,
           },
           headerTintColor: '#fff',
           headerTitleStyle: {
             fontWeight: 'bold',
+            fontSize: 18,
           },
         }}
       >
