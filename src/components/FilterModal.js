@@ -6,7 +6,6 @@ import {
   Modal,
   Animated,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   ScrollView,
   Dimensions,
 } from 'react-native';
@@ -109,16 +108,17 @@ export default function FilterModal({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="none" onRequestClose={closeWithAnimation}>
-      <TouchableWithoutFeedback onPress={closeWithAnimation}>
-        <Animated.View style={[styles.backdrop, { opacity: fadeAnim }]}>
-          <TouchableWithoutFeedback>
-            <Animated.View
-              style={[
-                styles.modalContainer,
-                { transform: [{ translateY: slideAnim }] },
-              ]}
-            >
+    <Modal visible={visible} transparent animationType="none" onRequestClose={closeWithAnimation} statusBarTranslucent>
+      <View style={styles.backdrop} pointerEvents="box-none">
+        <Animated.View style={[styles.backdropOverlay, { opacity: fadeAnim }]}>
+          <TouchableOpacity style={styles.backdropTouchable} activeOpacity={1} onPress={closeWithAnimation} />
+        </Animated.View>
+        <Animated.View
+          style={[
+            styles.modalContainer,
+            { transform: [{ translateY: slideAnim }] },
+          ]}
+        >
               {/* Header */}
               <View style={styles.header}>
                 <TouchableOpacity onPress={closeWithAnimation} style={styles.closeButton}>
@@ -283,9 +283,7 @@ export default function FilterModal({
                 </TouchableOpacity>
               </View>
             </Animated.View>
-          </TouchableWithoutFeedback>
-        </Animated.View>
-      </TouchableWithoutFeedback>
+          </View>
     </Modal>
   );
 }
@@ -296,8 +294,14 @@ export { AMENITY_OPTIONS, ACCESS_OPTIONS, CLEANLINESS_OPTIONS, DISTANCE_OPTIONS 
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'flex-end',
+  },
+  backdropOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+  },
+  backdropTouchable: {
+    flex: 1,
   },
   modalContainer: {
     height: SCREEN_HEIGHT * 0.9,

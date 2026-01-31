@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
+import { MaterialIcons } from '@expo/vector-icons';
 import { customMapStyle } from '../styles/mapStyle';
 import { searchPlaces, getPlaceDetails } from '../services/placesService';
 import { subscribeToRestrooms, getCachedRestrooms } from '../services/restroomService';
@@ -365,6 +366,7 @@ export default function MapScreen() {
         showsMyLocationButton={false}
         showsCompass={false}
         toolbarEnabled={false}
+        moveOnMarkerPress={false}
       >
         {filteredRestrooms.map((restroom) => (
           <Marker
@@ -389,10 +391,10 @@ export default function MapScreen() {
       </MapView>
 
       {/* Search Bar and Filter Button */}
-      <View style={styles.searchContainer}>
+      <View style={styles.searchContainer} pointerEvents="box-none">
         <View style={styles.searchRow}>
           <View style={styles.searchBar}>
-            <Text style={styles.searchIcon}>🔍</Text>
+            <MaterialIcons name="search" size={22} color="#717171" style={styles.searchIcon} />
             <TextInput
               style={styles.searchInput}
               placeholder="Search city..."
@@ -420,7 +422,7 @@ export default function MapScreen() {
             style={styles.filterButton}
             onPress={() => setShowFilterModal(true)}
           >
-            <Text style={styles.filterIcon}>☰</Text>
+            <MaterialIcons name="tune" size={24} color="#5D4037" />
             {hasActiveFilters && <View style={styles.filterBadge} />}
           </TouchableOpacity>
         </View>
@@ -694,7 +696,6 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 5,
   },
-  filterIcon: { fontSize: 20, color: '#5D4037' },
   filterBadge: {
     position: 'absolute',
     top: 8,
@@ -768,7 +769,7 @@ const styles = StyleSheet.create({
     color: '#5D4037',
     textDecorationLine: 'underline',
   },
-  searchIcon: { fontSize: 18, marginRight: 12, color: '#717171' },
+  searchIcon: { marginRight: 12 },
   searchInput: { 
     flex: 1, 
     fontSize: 16, 
@@ -843,7 +844,7 @@ const styles = StyleSheet.create({
   markerSelected: { transform: [{ scale: 1.2 }] },
   markerInner: { backgroundColor: '#FFFFFF', padding: 8, borderRadius: 24, borderWidth: 2, borderColor: '#5D4037', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5 },
   markerIcon: { fontSize: 20 },
-  detailSheet: { position: 'absolute', bottom: 0, left: 0, right: 0, height: DETAIL_SHEET_HEIGHT, backgroundColor: '#FFFFFF', borderTopLeftRadius: 16, borderTopRightRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 20 },
+  detailSheet: { position: 'absolute', bottom: 0, left: 0, right: 0, height: DETAIL_SHEET_HEIGHT, backgroundColor: '#FFFFFF', borderTopLeftRadius: 16, borderTopRightRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 20, zIndex: 15 },
   detailHandleContainer: { paddingTop: 8, paddingBottom: 8, alignItems: 'center', zIndex: 10 },
   handle: { width: 32, height: 4, backgroundColor: '#DDDDDD', borderRadius: 2 },
   detailScroll: { flex: 1 },
