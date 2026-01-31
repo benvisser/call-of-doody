@@ -319,11 +319,19 @@ export default function AddRestroomScreen({ visible, onClose, initialLocation, o
       // Generate a unique ID for this restroom
       const restroomId = generateRestroomId();
 
-      // Upload image if provided
+      // Upload image if provided (gracefully handle failures)
       let imageUrl = null;
       if (imageUri) {
         console.log('[AddRestroom] Uploading image...');
-        imageUrl = await uploadRestroomImage(imageUri, restroomId);
+        try {
+          imageUrl = await uploadRestroomImage(imageUri, restroomId);
+          if (!imageUrl) {
+            console.log('[AddRestroom] Image upload returned null, continuing without image');
+          }
+        } catch (uploadError) {
+          console.warn('[AddRestroom] Image upload failed, continuing without image:', uploadError.message);
+          // Continue without image - don't block submission
+        }
       }
 
       // Prepare restroom data

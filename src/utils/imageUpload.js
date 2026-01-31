@@ -68,7 +68,14 @@ export const uploadRestroomImage = async (localUri, restroomId) => {
 
     return downloadUrl;
   } catch (error) {
-    console.error('[ImageUpload] Upload failed:', error);
+    console.error('[ImageUpload] Upload failed:', error.code || 'unknown', error.message || error);
+    // Common errors:
+    // - storage/unauthorized: Firebase Storage rules don't allow writes
+    // - storage/quota-exceeded: Storage quota exceeded
+    // - storage/invalid-url: Invalid storage bucket
+    if (error.code === 'storage/unauthorized') {
+      console.error('[ImageUpload] FIX: Update Firebase Storage rules to allow writes to restroom-images/');
+    }
     return null;
   }
 };
