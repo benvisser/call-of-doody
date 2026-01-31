@@ -522,22 +522,23 @@ export default function MapScreen() {
         </View>
       )}
 
-      {/* Add Restroom FAB */}
+      {/* Add Restroom Button */}
       <TouchableOpacity
-        style={styles.addRestroomFab}
+        style={styles.addButton}
         onPress={() => setShowAddRestroomModal(true)}
-        activeOpacity={0.8}
+        activeOpacity={0.9}
       >
-        <Text style={styles.addRestroomFabIcon}>+</Text>
+        <MaterialIcons name="add-circle" size={32} color="#8B7355" />
       </TouchableOpacity>
 
       {/* Current Location Button */}
       {userLocation && (
         <TouchableOpacity
-          style={styles.currentLocationButton}
+          style={styles.locationButton}
           onPress={goToCurrentLocation}
+          activeOpacity={0.9}
         >
-          <Text style={styles.currentLocationIcon}>📍</Text>
+          <MaterialIcons name="my-location" size={24} color="#8B7355" />
         </TouchableOpacity>
       )}
 
@@ -880,29 +881,23 @@ const styles = StyleSheet.create({
   },
   errorText: { flex: 1, color: '#991B1B', fontSize: 14 },
   errorDismiss: { color: '#991B1B', fontSize: 18, paddingLeft: 12 },
-  addRestroomFab: {
+  addButton: {
     position: 'absolute',
-    bottom: 120,
+    bottom: 112,
     right: 16,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#8B7355',
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
     shadowRadius: 8,
-    elevation: 8,
+    elevation: 5,
   },
-  addRestroomFabIcon: {
-    fontSize: 32,
-    color: '#FFFFFF',
-    fontWeight: '300',
-    marginTop: -2,
-  },
-  currentLocationButton: {
+  locationButton: {
     position: 'absolute',
     bottom: 40,
     right: 16,
@@ -918,7 +913,6 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 5,
   },
-  currentLocationIcon: { fontSize: 24 },
   marker: { alignItems: 'center' },
   markerSelected: { transform: [{ scale: 1.2 }] },
   markerInner: { backgroundColor: '#FFFFFF', padding: 8, borderRadius: 24, borderWidth: 2, borderColor: '#5D4037', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5 },
