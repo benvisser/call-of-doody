@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -21,6 +21,15 @@ import * as Location from 'expo-location';
 import { customMapStyle } from '../styles/mapStyle';
 import { searchPlaces, getPlaceDetails } from '../services/placesService';
 import { subscribeToRestrooms, getCachedRestrooms } from '../services/restroomService';
+import FilterModal, { AMENITY_OPTIONS, CLEANLINESS_OPTIONS, DISTANCE_OPTIONS } from '../components/FilterModal';
+import { formatDistance, addDistanceToRestrooms } from '../utils/distance';
+
+const DEFAULT_FILTERS = {
+  accessType: 'all',
+  amenities: [],
+  cleanliness: 'any',
+  distance: 'any',
+};
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const DETAIL_SHEET_HEIGHT = SCREEN_HEIGHT * 0.75;
@@ -42,7 +51,9 @@ export default function MapScreen() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [restrooms, setRestrooms] = useState([]);
   const [dataError, setDataError] = useState(null);
-  
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [filters, setFilters] = useState(DEFAULT_FILTERS);
+
   const mapRef = useRef(null);
   const detailPanY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const [scrollEnabled, setScrollEnabled] = useState(true);
@@ -198,6 +209,101 @@ export default function MapScreen() {
     }
   };
 
+  // Filter and add distance to restrooms
+  const filteredRestrooms = useMemo(() => {
+    // First add distance to all restrooms
+    let result = addDistanceToRestrooms(restrooms, userLocation);
+
+    // Apply access type filter
+    if (filters.accessType === 'public') {
+      result = result.filter((r) => !r.isPrivate);
+    } else if (filters.accessType === 'private') {
+      result = result.filter((r) => r.isPrivate);
+    }
+
+    // Apply amenities filter
+    if (filters.amenities.length > 0) {
+      result = result.filter((r) =>
+        filters.amenities.every((amenity) => r.amenities.includes(amenity))
+      );
+    }
+
+    // Apply cleanliness filter
+    const cleanlinessOption = CLEANLINESS_OPTIONS.find((o) => o.key === filters.cleanliness);
+    if (cleanlinessOption && cleanlinessOption.min > 0) {
+      result = result.filter((r) => r.cleanliness >= cleanlinessOption.min);
+    }
+
+    // Apply distance filter
+    if (userLocation && filters.distance !== 'any') {
+      const distanceOption = DISTANCE_OPTIONS.find((o) => o.key === filters.distance);
+      if (distanceOption && distanceOption.max !== Infinity) {
+        result = result.filter((r) => r.distance <= distanceOption.max);
+      }
+    }
+
+    return result;
+  }, [restrooms, userLocation, filters]);
+
+  // Check if any filters are active
+  const hasActiveFilters = useMemo(() => {
+    return (
+      filters.accessType !== 'all' ||
+      filters.amenities.length > 0 ||
+      filters.cleanliness !== 'any' ||
+      filters.distance !== 'any'
+    );
+  }, [filters]);
+
+  // Get active filter labels for chips
+  const getActiveFilterChips = useCallback(() => {
+    const chips = [];
+
+    if (filters.accessType === 'public') {
+      chips.push({ key: 'accessType', label: 'Public Only' });
+    } else if (filters.accessType === 'private') {
+      chips.push({ key: 'accessType', label: 'Private Only' });
+    }
+
+    filters.amenities.forEach((amenityKey) => {
+      const amenity = AMENITY_OPTIONS.find((a) => a.key === amenityKey);
+      if (amenity) {
+        chips.push({ key: `amenity-${amenityKey}`, amenityKey, label: amenity.label });
+      }
+    });
+
+    if (filters.cleanliness !== 'any') {
+      const option = CLEANLINESS_OPTIONS.find((o) => o.key === filters.cleanliness);
+      chips.push({ key: 'cleanliness', label: `${option?.label} stars` });
+    }
+
+    if (filters.distance !== 'any') {
+      const option = DISTANCE_OPTIONS.find((o) => o.key === filters.distance);
+      chips.push({ key: 'distance', label: option?.label });
+    }
+
+    return chips;
+  }, [filters]);
+
+  const removeFilter = useCallback((chip) => {
+    if (chip.key === 'accessType') {
+      setFilters((prev) => ({ ...prev, accessType: 'all' }));
+    } else if (chip.key.startsWith('amenity-')) {
+      setFilters((prev) => ({
+        ...prev,
+        amenities: prev.amenities.filter((a) => a !== chip.amenityKey),
+      }));
+    } else if (chip.key === 'cleanliness') {
+      setFilters((prev) => ({ ...prev, cleanliness: 'any' }));
+    } else if (chip.key === 'distance') {
+      setFilters((prev) => ({ ...prev, distance: 'any' }));
+    }
+  }, []);
+
+  const clearAllFilters = useCallback(() => {
+    setFilters(DEFAULT_FILTERS);
+  }, []);
+
   const openDirections = async (restroom) => {
     const { latitude, longitude, name } = restroom;
     const encodedName = encodeURIComponent(name);
@@ -260,7 +366,7 @@ export default function MapScreen() {
         showsCompass={false}
         toolbarEnabled={false}
       >
-        {restrooms.map((restroom) => (
+        {filteredRestrooms.map((restroom) => (
           <Marker
             key={restroom.id}
             coordinate={{
@@ -282,31 +388,63 @@ export default function MapScreen() {
         ))}
       </MapView>
 
-      {/* Search Bar */}
+      {/* Search Bar and Filter Button */}
       <View style={styles.searchContainer}>
-        <View style={styles.searchBar}>
-          <Text style={styles.searchIcon}>🔍</Text>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search city..."
-            value={searchQuery}
-            onChangeText={searchLocation}
-            onFocus={() => setShowSearchResults(searchResults.length > 0)}
-            placeholderTextColor="#717171"
-          />
-          {searchQuery.length > 0 && (
-            <TouchableOpacity 
-              onPress={() => {
-                setSearchQuery('');
-                setSearchResults([]);
-                setShowSearchResults(false);
-              }}
-              style={styles.clearButton}
-            >
-              <Text style={styles.clearButtonText}>✕</Text>
-            </TouchableOpacity>
-          )}
+        <View style={styles.searchRow}>
+          <View style={styles.searchBar}>
+            <Text style={styles.searchIcon}>🔍</Text>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search city..."
+              value={searchQuery}
+              onChangeText={searchLocation}
+              onFocus={() => setShowSearchResults(searchResults.length > 0)}
+              placeholderTextColor="#717171"
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity
+                onPress={() => {
+                  setSearchQuery('');
+                  setSearchResults([]);
+                  setShowSearchResults(false);
+                }}
+                style={styles.clearButton}
+              >
+                <Text style={styles.clearButtonText}>✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Filter Button */}
+          <TouchableOpacity
+            style={styles.filterButton}
+            onPress={() => setShowFilterModal(true)}
+          >
+            <Text style={styles.filterIcon}>☰</Text>
+            {hasActiveFilters && <View style={styles.filterBadge} />}
+          </TouchableOpacity>
         </View>
+
+        {/* Active Filter Chips */}
+        {hasActiveFilters && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.filterChipsContainer}
+            contentContainerStyle={styles.filterChipsContent}
+          >
+            {getActiveFilterChips().map((chip) => (
+              <TouchableOpacity
+                key={chip.key}
+                style={styles.filterChip}
+                onPress={() => removeFilter(chip)}
+              >
+                <Text style={styles.filterChipText}>{chip.label}</Text>
+                <Text style={styles.filterChipClose}>✕</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        )}
 
         {/* Search Results Dropdown */}
         {(showSearchResults || searchLoading) && (
@@ -360,6 +498,16 @@ export default function MapScreen() {
         </TouchableOpacity>
       )}
 
+      {/* No Results Message */}
+      {filteredRestrooms.length === 0 && restrooms.length > 0 && (
+        <View style={styles.noResultsContainer}>
+          <Text style={styles.noResultsText}>No restrooms match your filters</Text>
+          <TouchableOpacity onPress={clearAllFilters} style={styles.clearFiltersButton}>
+            <Text style={styles.clearFiltersButtonText}>Clear filters</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {showDetail && selectedRestroom && (
         <Animated.View 
           style={[
@@ -395,6 +543,11 @@ export default function MapScreen() {
                   <Text style={styles.reviewCount}>({selectedRestroom.reviews} reviews)</Text>
                 </View>
                 <Text style={styles.detailAddress}>{selectedRestroom.address}</Text>
+                {selectedRestroom.distance !== undefined && (
+                  <Text style={styles.detailDistance}>
+                    {formatDistance(selectedRestroom.distance)} away
+                  </Text>
+                )}
               </View>
 
               <View style={styles.divider} />
@@ -492,6 +645,17 @@ export default function MapScreen() {
           </View>
         </Animated.View>
       )}
+
+      {/* Filter Modal */}
+      <FilterModal
+        visible={showFilterModal}
+        onClose={() => setShowFilterModal(false)}
+        filters={filters}
+        onFiltersChange={setFilters}
+        resultCount={filteredRestrooms.length}
+        hasUserLocation={!!userLocation}
+        onClearAll={clearAllFilters}
+      />
     </View>
   );
 }
@@ -502,18 +666,107 @@ const styles = StyleSheet.create({
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F5F5F5' },
   loadingText: { marginTop: 12, fontSize: 16, color: '#717171', fontWeight: '500' },
   searchContainer: { position: 'absolute', top: 30, left: 16, right: 16, zIndex: 10 },
-  searchBar: { 
-    flexDirection: 'row', 
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  searchBar: {
+    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
     borderRadius: 32,
-    paddingHorizontal: 20, 
+    paddingHorizontal: 20,
     paddingVertical: 16,
-    shadowColor: '#000', 
-    shadowOffset: { width: 0, height: 2 }, 
-    shadowOpacity: 0.15, 
-    shadowRadius: 8, 
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
     elevation: 5,
+  },
+  filterButton: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  filterIcon: { fontSize: 20, color: '#5D4037' },
+  filterBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#FF385C',
+  },
+  filterChipsContainer: {
+    marginTop: 10,
+    marginHorizontal: -4,
+  },
+  filterChipsContent: {
+    paddingHorizontal: 4,
+    gap: 8,
+    flexDirection: 'row',
+  },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  filterChipText: {
+    fontSize: 13,
+    color: '#5D4037',
+    fontWeight: '500',
+    marginRight: 6,
+  },
+  filterChipClose: {
+    fontSize: 12,
+    color: '#717171',
+  },
+  noResultsContainer: {
+    position: 'absolute',
+    top: 140,
+    left: 24,
+    right: 24,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 20,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 5,
+    zIndex: 5,
+  },
+  noResultsText: {
+    fontSize: 15,
+    color: '#717171',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  clearFiltersButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  clearFiltersButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#5D4037',
+    textDecorationLine: 'underline',
   },
   searchIcon: { fontSize: 18, marginRight: 12, color: '#717171' },
   searchInput: { 
@@ -607,6 +860,7 @@ const styles = StyleSheet.create({
   ratingNumber: { fontSize: 14, fontWeight: '600', color: '#222222', marginLeft: 6 },
   reviewCount: { fontSize: 14, color: '#717171' },
   detailAddress: { fontSize: 15, color: '#717171', lineHeight: 20 },
+  detailDistance: { fontSize: 14, color: '#5D4037', fontWeight: '500', marginTop: 6 },
   divider: { height: 1, backgroundColor: '#EBEBEB', marginHorizontal: 24, marginVertical: 24 },
   section: { paddingHorizontal: 24 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
