@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
+import {
+  View,
+  Text,
+  StyleSheet,
   ActivityIndicator,
   Animated,
   PanResponder,
@@ -13,12 +13,14 @@ import {
   TextInput,
   FlatList,
   Keyboard,
+  Linking,
+  Alert,
 } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
-import { mockRestrooms } from '../data/mockData';
 import { customMapStyle } from '../styles/mapStyle';
 import { searchPlaces, getPlaceDetails } from '../services/placesService';
+import { subscribeToRestrooms, getCachedRestrooms } from '../services/restroomService';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const DETAIL_SHEET_HEIGHT = SCREEN_HEIGHT * 0.75;
@@ -38,6 +40,8 @@ export default function MapScreen() {
   const [searchResults, setSearchResults] = useState([]);
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [restrooms, setRestrooms] = useState([]);
+  const [dataError, setDataError] = useState(null);
   
   const mapRef = useRef(null);
   const detailPanY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
@@ -95,6 +99,23 @@ export default function MapScreen() {
 
   useEffect(() => {
     getCurrentLocation();
+  }, []);
+
+  // Subscribe to restrooms from Firestore (or mock data as fallback)
+  useEffect(() => {
+    const unsubscribe = subscribeToRestrooms(
+      (data) => {
+        setRestrooms(data);
+        setDataError(null);
+      },
+      (error) => {
+        console.error('Error loading restrooms:', error);
+        setDataError('Unable to load restrooms. Using cached data.');
+        setRestrooms(getCachedRestrooms());
+      }
+    );
+
+    return () => unsubscribe();
   }, []);
 
   const getCurrentLocation = async () => {
@@ -177,6 +198,23 @@ export default function MapScreen() {
     }
   };
 
+  const openDirections = async (restroom) => {
+    const { latitude, longitude, name } = restroom;
+    const encodedName = encodeURIComponent(name);
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}&destination_place_id=${encodedName}`;
+
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (supported) {
+        await Linking.openURL(url);
+      } else {
+        Alert.alert('Error', 'Unable to open maps application');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Something went wrong opening directions');
+    }
+  };
+
   const renderStars = (rating) => {
     const stars = [];
     const fullStars = Math.floor(rating);
@@ -222,7 +260,7 @@ export default function MapScreen() {
         showsCompass={false}
         toolbarEnabled={false}
       >
-        {mockRestrooms.map((restroom) => (
+        {restrooms.map((restroom) => (
           <Marker
             key={restroom.id}
             coordinate={{
@@ -301,6 +339,16 @@ export default function MapScreen() {
           </View>
         )}
       </View>
+
+      {/* Error Banner */}
+      {dataError && (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorText}>{dataError}</Text>
+          <TouchableOpacity onPress={() => setDataError(null)}>
+            <Text style={styles.errorDismiss}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Current Location Button */}
       {userLocation && (
@@ -435,7 +483,10 @@ export default function MapScreen() {
               <Text style={styles.priceLabel}>Free</Text>
               <Text style={styles.priceSubtext}>Public access</Text>
             </View>
-            <TouchableOpacity style={styles.directionsButton}>
+            <TouchableOpacity
+              style={styles.directionsButton}
+              onPress={() => openDirections(selectedRestroom)}
+            >
               <Text style={styles.directionsButtonText}>Get Directions</Text>
             </TouchableOpacity>
           </View>
@@ -498,6 +549,26 @@ const styles = StyleSheet.create({
   searchResultText: { fontSize: 16, color: '#222222' },
   searchResultSecondary: { fontSize: 14, color: '#717171', marginTop: 2 },
   searchLoadingContainer: { padding: 20, alignItems: 'center' },
+  errorBanner: {
+    position: 'absolute',
+    top: 100,
+    left: 16,
+    right: 16,
+    backgroundColor: '#FEE2E2',
+    borderRadius: 8,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    zIndex: 9,
+  },
+  errorText: { flex: 1, color: '#991B1B', fontSize: 14 },
+  errorDismiss: { color: '#991B1B', fontSize: 18, paddingLeft: 12 },
   currentLocationButton: {
     position: 'absolute',
     bottom: 40,

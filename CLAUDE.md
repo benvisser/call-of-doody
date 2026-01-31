@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Call of Doody is a React Native (Expo) mobile app for finding public restrooms with crowd-sourced ratings and reviews. Currently in MVP phase using mock data.
+Call of Doody is a React Native (Expo SDK 54) mobile app for finding public restrooms with crowd-sourced ratings and reviews.
 
 ## Development Commands
 
@@ -18,7 +18,7 @@ npm run web          # Start in web browser
 
 ## Architecture
 
-**Navigation**: Uses React Navigation (NOT Expo Router). All routes defined in App.js via `createNativeStackNavigator()`.
+**Navigation**: Uses React Navigation v7 (NOT Expo Router). All routes defined in App.js via `createNativeStackNavigator()`.
 
 **Screen Flow**:
 - MapScreen (initial) - Map with restroom markers, search bar, location services
@@ -28,7 +28,7 @@ npm run web          # Start in web browser
 - Functional components with hooks only (no class components)
 - MapScreen contains an animated bottom sheet for restroom details (using PanResponder)
 - Location permissions handled via expo-location
-- Mock data in `src/data/mockData.js` - will be replaced with Firebase
+- Data from Firestore with automatic fallback to mock data
 
 **Data Model** (Restroom object):
 ```javascript
@@ -40,6 +40,24 @@ npm run web          # Start in web browser
   reviews, address, isPrivate, imageUrl
 }
 ```
+
+## Firebase / Firestore
+
+Restroom data is stored in Firestore with real-time sync. Falls back to mock data if Firebase is not configured or empty.
+
+**Setup:** See `docs/FIREBASE_SETUP.md` for detailed instructions.
+
+**Key files:**
+- `src/config/firebase.js` - Firebase initialization
+- `src/services/restroomService.js` - Firestore queries with real-time sync & caching
+- `scripts/migrate.js` - Node.js script to upload mock data to Firestore
+
+**Data migration:**
+```bash
+node scripts/migrate.js  # Upload mock data to Firestore
+```
+
+See `docs/DATA_MIGRATION.md` for detailed migration instructions.
 
 ## Google Places API
 
