@@ -35,7 +35,7 @@ In Google Cloud Console, go to **APIs & Services** > **Library** and enable:
 
 ### Step 3: Configure Environment Variables
 
-Add the API key to your `.env` file:
+Add the API key to your local `.env` file (for development):
 
 ```bash
 # iOS Maps API Key
@@ -45,7 +45,24 @@ EXPO_PUBLIC_GOOGLE_MAPS_IOS_API_KEY=AIzaSy...your_key_here
 EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY=AIzaSy...your_android_key
 ```
 
-### Step 4: Verify app.config.js
+### Step 4: Add API Key to EAS (CRITICAL for TestFlight!)
+
+**Your local `.env` file is NOT used during EAS cloud builds.** You must add the API key to EAS environment variables:
+
+```bash
+eas env:create --name EXPO_PUBLIC_GOOGLE_MAPS_IOS_API_KEY --environment production --visibility plaintext
+```
+
+When prompted:
+- Select **String** as the variable type
+- Paste your API key value
+
+Verify it was added:
+```bash
+eas env:list --environment production
+```
+
+### Step 5: Verify app.config.js
 
 Ensure `app.config.js` reads the environment variable:
 
@@ -70,6 +87,7 @@ eas build --platform ios --clear-cache
 - [ ] Bundle ID matches exactly: `com.benvisser.callofdoody`
 - [ ] Maps SDK for iOS is enabled in Google Cloud Console
 - [ ] API key is in `.env` file as `EXPO_PUBLIC_GOOGLE_MAPS_IOS_API_KEY`
+- [ ] **API key is added to EAS environment variables** (Step 4 above!)
 - [ ] `app.config.js` references the environment variable
 - [ ] App was rebuilt after configuration changes
 
@@ -103,7 +121,19 @@ eas build --platform ios --clear-cache
 3. Verify bundle ID is exactly: `com.benvisser.callofdoody`
 4. Create a new key if needed
 
-### Map works in Simulator but not on Device
+### Map works in Simulator/Expo Go but not in TestFlight
+
+**Cause:** EAS cloud builds don't use your local `.env` file. The API key is missing from the production build.
+
+**Solution:**
+1. Add the API key to EAS environment variables:
+   ```bash
+   eas env:create --name EXPO_PUBLIC_GOOGLE_MAPS_IOS_API_KEY --environment production --visibility plaintext
+   ```
+2. Rebuild and submit to TestFlight
+3. The app will log `[MapScreen] Google Maps iOS API Key: configured/NOT CONFIGURED` to help diagnose
+
+### Map works in Simulator but not on Physical Device (Xcode)
 
 **Cause:** Sometimes simulator uses a different code path.
 
@@ -133,8 +163,16 @@ eas build --platform ios --clear-cache
 ### Check Console Logs
 
 The app logs map status to the console:
+- `[MapScreen] Google Maps iOS API Key: configured (AIzaSy...)` - Key is present in build
+- `[MapScreen] Google Maps iOS API Key: NOT CONFIGURED` - Key is missing! Add to EAS env vars
 - `[MapScreen] Map loaded successfully` - Map initialized correctly
 - `[MapScreen] Map error: ...` - Shows the specific error
+
+### Check Error UI
+
+If the map fails to load, the app displays an error screen that shows:
+- Whether the API key was configured in the build
+- Hints for how to fix the issue
 
 ### Verify API Key in Build
 
