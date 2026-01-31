@@ -24,6 +24,14 @@ import { searchPlaces, getPlaceDetails } from '../services/placesService';
 import { subscribeToRestrooms, getCachedRestrooms } from '../services/restroomService';
 import FilterModal, { AMENITY_OPTIONS, CLEANLINESS_OPTIONS, DISTANCE_OPTIONS } from '../components/FilterModal';
 import { formatDistance, addDistanceToRestrooms } from '../utils/distance';
+import Constants from 'expo-constants';
+
+// Debug: Check if Google Maps API key is configured (helps diagnose TestFlight issues)
+const GOOGLE_MAPS_API_KEY = Constants.expoConfig?.ios?.config?.googleMapsApiKey;
+const API_KEY_CONFIGURED = !!GOOGLE_MAPS_API_KEY;
+console.log('[MapScreen] Google Maps iOS API Key:', API_KEY_CONFIGURED
+  ? `configured (${GOOGLE_MAPS_API_KEY.substring(0, 10)}...)`
+  : 'NOT CONFIGURED - Maps will not work!');
 
 const DEFAULT_FILTERS = {
   accessType: 'all',
@@ -364,7 +372,9 @@ export default function MapScreen() {
           <Text style={styles.mapErrorTitle}>Map failed to load</Text>
           <Text style={styles.mapErrorText}>{mapError}</Text>
           <Text style={styles.mapErrorHint}>
-            Check that Google Maps API key is configured correctly for iOS.
+            {API_KEY_CONFIGURED
+              ? 'API key is configured. Check Google Cloud Console for restrictions.'
+              : '⚠️ API KEY NOT CONFIGURED - add EXPO_PUBLIC_GOOGLE_MAPS_IOS_API_KEY to EAS environment.'}
           </Text>
         </View>
       ) : null}
