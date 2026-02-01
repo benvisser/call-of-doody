@@ -24,7 +24,10 @@ import { searchPlaces, getPlaceDetails } from '../services/placesService';
 import { subscribeToRestrooms, getCachedRestrooms } from '../services/restroomService';
 import FilterModal, { AMENITY_OPTIONS, CLEANLINESS_OPTIONS, DISTANCE_OPTIONS } from '../components/FilterModal';
 import AddRestroomScreen from './AddRestroomScreen';
+import WriteReviewScreen from './WriteReviewScreen';
 import { formatDistance, addDistanceToRestrooms } from '../utils/distance';
+import { formatReviewDate, getInitials, getCategoryLabel } from '../utils/reviewHelpers';
+import { fetchReviews } from '../services/reviewService';
 import Constants from 'expo-constants';
 
 // Debug: Check if Google Maps API key is configured (helps diagnose TestFlight issues)
@@ -63,9 +66,12 @@ export default function MapScreen() {
   const [dataError, setDataError] = useState(null);
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [showAddRestroomModal, setShowAddRestroomModal] = useState(false);
+  const [showWriteReviewModal, setShowWriteReviewModal] = useState(false);
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState(null);
+  const [reviews, setReviews] = useState([]);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
 
   const mapRef = useRef(null);
   const detailPanY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
@@ -98,9 +104,11 @@ export default function MapScreen() {
     })
   ).current;
 
-  const openDetail = (restroom) => {
+  const openDetail = async (restroom) => {
     setSelectedRestroom(restroom);
     setShowDetail(true);
+    setReviews([]);
+    setReviewsLoading(true);
     detailPanY.setValue(SCREEN_HEIGHT);
     Animated.spring(detailPanY, {
       toValue: 0,
@@ -108,6 +116,16 @@ export default function MapScreen() {
       tension: 50,
       friction: 9,
     }).start();
+
+    // Fetch reviews for this restroom
+    try {
+      const fetchedReviews = await fetchReviews(restroom.id, 10);
+      setReviews(fetchedReviews);
+    } catch (error) {
+      console.error('[MapScreen] Error fetching reviews:', error);
+    } finally {
+      setReviewsLoading(false);
+    }
   };
 
   const closeDetail = () => {
@@ -118,6 +136,7 @@ export default function MapScreen() {
     }).start(() => {
       setShowDetail(false);
       setSelectedRestroom(null);
+      setReviews([]);
     });
   };
 
@@ -638,37 +657,83 @@ export default function MapScreen() {
               <View style={styles.divider} />
 
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Recent reviews</Text>
-                
-                <View style={styles.reviewItem}>
-                  <View style={styles.reviewerInfo}>
-                    <View style={styles.avatar}><Text style={styles.avatarText}>S</Text></View>
-                    <View>
-                      <Text style={styles.reviewerName}>Sarah</Text>
-                      <Text style={styles.reviewDate}>December 2025</Text>
-                    </View>
-                  </View>
-                  <View style={styles.reviewStars}>{renderStars(5)}</View>
-                  <Text style={styles.reviewText}>
-                    Exceptionally clean! The changing table was a lifesaver.
-                  </Text>
-                </View>
+                <Text style={styles.sectionTitle}>Reviews</Text>
 
-                <View style={styles.reviewItem}>
-                  <View style={styles.reviewerInfo}>
-                    <View style={styles.avatar}><Text style={styles.avatarText}>J</Text></View>
-                    <View>
-                      <Text style={styles.reviewerName}>James</Text>
-                      <Text style={styles.reviewDate}>December 2025</Text>
-                    </View>
+                {reviewsLoading ? (
+                  <View style={styles.reviewsLoading}>
+                    <ActivityIndicator size="small" color="#717171" />
+                    <Text style={styles.reviewsLoadingText}>Loading reviews...</Text>
                   </View>
-                  <View style={styles.reviewStars}>{renderStars(4)}</View>
-                  <Text style={styles.reviewText}>Very good facilities. Easy to find.</Text>
-                </View>
+                ) : reviews.length === 0 ? (
+                  <View style={styles.emptyReviews}>
+                    <Text style={styles.emptyReviewsIcon}>🚽</Text>
+                    <Text style={styles.emptyReviewsTitle}>No reviews yet</Text>
+                    <Text style={styles.emptyReviewsText}>Be the first to share your experience!</Text>
+                    <TouchableOpacity
+                      style={styles.writeReviewButtonFull}
+                      onPress={() => setShowWriteReviewModal(true)}
+                    >
+                      <Text style={styles.writeReviewButtonFullText}>Write a Review</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <>
+                    {reviews.slice(0, 2).map((review) => {
+                      // Support both old (rating/cleanliness) and new (ratings/averageRating) structure
+                      const displayRating = review.averageRating || review.rating || 0;
+                      const hasNewFormat = review.ratings && typeof review.ratings === 'object';
 
-                <TouchableOpacity style={styles.showAllReviews}>
-                  <Text style={styles.showAllText}>Show all {selectedRestroom.reviews} reviews</Text>
-                </TouchableOpacity>
+                      return (
+                        <View key={review.id} style={styles.reviewItem}>
+                          <View style={styles.reviewerInfo}>
+                            <View style={styles.avatar}>
+                              <Text style={styles.avatarText}>{getInitials(review.userName)}</Text>
+                            </View>
+                            <View>
+                              <Text style={styles.reviewerName}>{review.userName}</Text>
+                              <Text style={styles.reviewDate}>{formatReviewDate(review.createdAt)}</Text>
+                            </View>
+                          </View>
+                          <View style={styles.reviewRatings}>
+                            <View style={styles.reviewStars}>{renderStars(displayRating)}</View>
+                            {hasNewFormat ? (
+                              <View style={styles.reviewCategoriesRow}>
+                                <Text style={styles.reviewCategoryPill}>
+                                  {getCategoryLabel('cleanliness', review.ratings.cleanliness)}
+                                </Text>
+                                <Text style={styles.reviewCategoryPill}>
+                                  {getCategoryLabel('waitTime', review.ratings.waitTime)}
+                                </Text>
+                              </View>
+                            ) : review.cleanliness ? (
+                              <View style={styles.reviewCleanlinessSmall}>
+                                <Text style={styles.reviewCleanlinessLabel}>Cleanliness:</Text>
+                                <View style={styles.reviewStarsSmall}>{renderStars(review.cleanliness)}</View>
+                              </View>
+                            ) : null}
+                          </View>
+                          {review.reviewText ? (
+                            <Text style={styles.reviewText}>{review.reviewText}</Text>
+                          ) : null}
+                        </View>
+                      );
+                    })}
+
+                    {reviews.length > 2 && (
+                      <TouchableOpacity style={styles.showAllReviews}>
+                        <Text style={styles.showAllText}>Show all {selectedRestroom.reviews} reviews</Text>
+                      </TouchableOpacity>
+                    )}
+
+                    {/* Full-width Write Review button */}
+                    <TouchableOpacity
+                      style={styles.writeReviewButtonFull}
+                      onPress={() => setShowWriteReviewModal(true)}
+                    >
+                      <Text style={styles.writeReviewButtonFullText}>Write a Review</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
               </View>
 
               <View style={{ height: 120 }} />
@@ -711,6 +776,26 @@ export default function MapScreen() {
           console.log('[MapScreen] Restroom added successfully');
         }}
       />
+
+      {/* Write Review Modal */}
+      {selectedRestroom && (
+        <WriteReviewScreen
+          visible={showWriteReviewModal}
+          onClose={() => setShowWriteReviewModal(false)}
+          restroom={selectedRestroom}
+          onSuccess={async () => {
+            // Refresh reviews after posting
+            console.log('[MapScreen] Review posted, refreshing reviews');
+            setShowWriteReviewModal(false);
+            try {
+              const updatedReviews = await fetchReviews(selectedRestroom.id, 10);
+              setReviews(updatedReviews);
+            } catch (error) {
+              console.error('[MapScreen] Error refreshing reviews:', error);
+            }
+          }}
+        />
+      )}
     </View>
   );
 }
@@ -947,13 +1032,38 @@ const styles = StyleSheet.create({
   amenityItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
   amenityIcon: { fontSize: 20, width: 32 },
   amenityText: { fontSize: 16, color: '#222222', marginLeft: 8 },
+  writeReviewButtonFull: {
+    backgroundColor: '#8B7355',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 20,
+    alignSelf: 'stretch',
+  },
+  writeReviewButtonFullText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  reviewsLoading: { alignItems: 'center', paddingVertical: 24 },
+  reviewsLoadingText: { fontSize: 14, color: '#717171', marginTop: 8 },
+  emptyReviews: { alignItems: 'center', paddingVertical: 32, backgroundColor: '#FAF7F5', borderRadius: 12, paddingHorizontal: 20 },
+  emptyReviewsIcon: { fontSize: 40, marginBottom: 12 },
+  emptyReviewsTitle: { fontSize: 18, fontWeight: '600', color: '#222222', marginBottom: 8 },
+  emptyReviewsText: { fontSize: 14, color: '#717171', marginBottom: 20, textAlign: 'center' },
   reviewItem: { marginBottom: 32 },
   reviewerInfo: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#222222', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#5D4037', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
   avatarText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
   reviewerName: { fontSize: 16, fontWeight: '600', color: '#222222', marginBottom: 2 },
   reviewDate: { fontSize: 14, color: '#717171' },
-  reviewStars: { flexDirection: 'row', marginBottom: 12 },
+  reviewRatings: { marginBottom: 12 },
+  reviewStars: { flexDirection: 'row', marginBottom: 6 },
+  reviewCleanlinessSmall: { flexDirection: 'row', alignItems: 'center' },
+  reviewCleanlinessLabel: { fontSize: 13, color: '#717171', marginRight: 6 },
+  reviewStarsSmall: { flexDirection: 'row' },
+  reviewCategoriesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
+  reviewCategoryPill: { fontSize: 12, color: '#5D4037', backgroundColor: '#FAF7F5', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
   reviewText: { fontSize: 15, lineHeight: 24, color: '#222222' },
   showAllReviews: { marginTop: 8, paddingVertical: 16, borderWidth: 1, borderColor: '#222222', borderRadius: 8, alignItems: 'center' },
   showAllText: { fontSize: 16, fontWeight: '600', color: '#222222' },

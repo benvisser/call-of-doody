@@ -22,6 +22,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { customMapStyle } from '../styles/mapStyle';
 import { addRestroom, isAutoApproveEnabled } from '../services/restroomService';
 import { uploadRestroomImage, generateRestroomId } from '../utils/imageUpload';
+import { checkFirebaseStatus } from '../config/firebase';
 import { searchPlaces, getPlaceDetails } from '../services/placesService';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -66,6 +67,7 @@ export default function AddRestroomScreen({ visible, onClose, initialLocation, o
 
   // UI state
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionStep, setSubmissionStep] = useState(''); // Track progress for user feedback
   const [errors, setErrors] = useState({});
   const [showAddressSearch, setShowAddressSearch] = useState(false);
   const [addressSearchQuery, setAddressSearchQuery] = useState('');
@@ -314,32 +316,74 @@ export default function AddRestroomScreen({ visible, onClose, initialLocation, o
     }
 
     setIsSubmitting(true);
+    setSubmissionStep('Checking connection...');
 
     try {
-      // Generate a unique ID for this restroom
-      const restroomId = generateRestroomId();
+      // Step 1: Check Firebase status before attempting submission
+      console.log('[AddRestroom] ===== STARTING SUBMISSION =====');
+      console.log('[AddRestroom] Form data:', {
+        name: name.trim(),
+        address: address || 'not provided',
+        location: location,
+        amenities: amenities,
+        genderFacilities: genderFacilities,
+        hasImage: !!imageUri,
+      });
 
-      // Upload image if provided (gracefully handle failures)
+      const firebaseStatus = checkFirebaseStatus();
+      console.log('[AddRestroom] Firebase status:', firebaseStatus);
+
+      if (!firebaseStatus.initialized) {
+        console.error('[AddRestroom] Firebase not ready:', firebaseStatus.error);
+        Alert.alert(
+          "Connection Issue",
+          `Unable to connect to server.\n\nError: ${firebaseStatus.error}\n\nPlease check your internet connection and try again.`,
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      // Step 2: Generate unique ID
+      setSubmissionStep('Preparing submission...');
+      const restroomId = generateRestroomId();
+      console.log('[AddRestroom] Generated ID:', restroomId);
+
+      // Step 3: Upload image if provided (gracefully handle failures)
       let imageUrl = null;
       if (imageUri) {
-        console.log('[AddRestroom] Uploading image...');
+        setSubmissionStep('Uploading photo...');
+        console.log('[AddRestroom] Step 3: Uploading image...');
         try {
           imageUrl = await uploadRestroomImage(imageUri, restroomId);
+          console.log('[AddRestroom] Image upload result:', imageUrl ? 'success' : 'returned null');
           if (!imageUrl) {
             console.log('[AddRestroom] Image upload returned null, continuing without image');
           }
         } catch (uploadError) {
-          console.warn('[AddRestroom] Image upload failed, continuing without image:', uploadError.message);
+          console.warn('[AddRestroom] Image upload failed:', uploadError.message);
+          console.warn('[AddRestroom] Continuing without image');
           // Continue without image - don't block submission
         }
+      } else {
+        console.log('[AddRestroom] No image to upload');
       }
 
-      // Prepare restroom data
+      // Step 4: Prepare and validate restroom data
+      setSubmissionStep('Saving location...');
+      console.log('[AddRestroom] Step 4: Preparing restroom data...');
+
+      // Validate coordinates are numbers
+      const lat = parseFloat(location.latitude);
+      const lng = parseFloat(location.longitude);
+      if (isNaN(lat) || isNaN(lng)) {
+        throw new Error(`Invalid coordinates: lat=${location.latitude}, lng=${location.longitude}`);
+      }
+
       const restroomData = {
         name: name.trim(),
         address: address || 'Address not provided',
-        latitude: location.latitude,
-        longitude: location.longitude,
+        latitude: lat,
+        longitude: lng,
         isPrivate,
         gender: genderFacilities.includes('unisex') ? 'unisex' :
                 (genderFacilities.includes('mens') && genderFacilities.includes('womens')) ? 'separate' :
@@ -355,10 +399,15 @@ export default function AddRestroomScreen({ visible, onClose, initialLocation, o
         imageUrl,
       };
 
-      console.log('[AddRestroom] Submitting restroom:', restroomData.name);
+      console.log('[AddRestroom] Restroom data prepared:', JSON.stringify(restroomData, null, 2));
+
+      // Step 5: Submit to Firestore
+      console.log('[AddRestroom] Step 5: Submitting to Firestore...');
       const result = await addRestroom(restroomData);
+      console.log('[AddRestroom] Submission result:', JSON.stringify(result, null, 2));
 
       if (result.success) {
+        console.log('[AddRestroom] ===== SUBMISSION SUCCESS =====');
         const autoApproved = result.autoApproved;
 
         // Show success message
@@ -374,27 +423,42 @@ export default function AddRestroomScreen({ visible, onClose, initialLocation, o
           onSuccess(result);
         }
       } else {
+        console.error('[AddRestroom] Submission failed:', result.error);
         throw new Error(result.error || 'Failed to add restroom');
       }
     } catch (error) {
-      console.error('[AddRestroom] Submit error:', error);
+      console.error('[AddRestroom] ===== SUBMISSION ERROR =====');
+      console.error('[AddRestroom] Error name:', error.name);
+      console.error('[AddRestroom] Error message:', error.message);
+      console.error('[AddRestroom] Error code:', error.code);
+      console.error('[AddRestroom] Full error:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+
+      // Provide user-friendly error message with details for debugging
+      let userMessage = error.message || 'An unexpected error occurred';
+
+      // Add helpful context for common errors
+      if (error.code === 'permission-denied' || error.message?.includes('permission')) {
+        userMessage = 'Permission denied. The app may need to be updated.';
+      } else if (error.message?.includes('network') || error.message?.includes('Network') || error.code === 'unavailable') {
+        userMessage = 'Network error. Please check your internet connection.';
+      } else if (error.message?.includes('Firebase not configured')) {
+        userMessage = 'Server connection error. Please try again later.';
+      }
+
       Alert.alert(
-        "Uh oh! Something got clogged",
-        "Please try again in a moment.",
+        "Submission Failed",
+        `${userMessage}\n\nIf this persists, please screenshot this error and report it:\n\nCode: ${error.code || 'unknown'}\nDetails: ${error.message || 'none'}`,
         [{ text: 'OK' }]
       );
     } finally {
       setIsSubmitting(false);
+      setSubmissionStep('');
     }
   };
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={closeWithAnimation} statusBarTranslucent>
-      <View style={styles.backdrop} pointerEvents="box-none">
-        <Animated.View style={[styles.backdropOverlay, { opacity: fadeAnim }]}>
-          <TouchableOpacity style={styles.backdropTouchable} activeOpacity={1} onPress={closeWithAnimation} />
-        </Animated.View>
-
+      <Animated.View style={[styles.backdrop, { opacity: fadeAnim }]}>
         <Animated.View
           style={[
             styles.modalContainer,
@@ -668,7 +732,7 @@ export default function AddRestroomScreen({ visible, onClose, initialLocation, o
                 {isSubmitting ? (
                   <View style={styles.submitButtonContent}>
                     <ActivityIndicator size="small" color="#FFFFFF" />
-                    <Text style={styles.submitButtonText}>Deploying coordinates...</Text>
+                    <Text style={styles.submitButtonText}>{submissionStep || 'Submitting...'}</Text>
                   </View>
                 ) : (
                   <Text style={styles.submitButtonText}>Add Throne to Map 🚽</Text>
@@ -677,7 +741,7 @@ export default function AddRestroomScreen({ visible, onClose, initialLocation, o
             </View>
           </KeyboardAvoidingView>
         </Animated.View>
-      </View>
+      </Animated.View>
 
       {/* Address Search Modal */}
       <Modal visible={showAddressSearch} transparent animationType="slide">
@@ -735,16 +799,10 @@ const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
     justifyContent: 'flex-end',
-  },
-  backdropOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-  },
-  backdropTouchable: {
-    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   modalContainer: {
-    height: SCREEN_HEIGHT * 0.92,
+    height: SCREEN_HEIGHT * 0.85,
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
