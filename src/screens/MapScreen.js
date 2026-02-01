@@ -27,6 +27,7 @@ import { subscribeToRestrooms, getCachedRestrooms } from '../services/restroomSe
 import FilterModal, { AMENITY_OPTIONS, CLEANLINESS_OPTIONS, DISTANCE_OPTIONS } from '../components/FilterModal';
 import AddRestroomScreen from './AddRestroomScreen';
 import WriteReviewScreen from './WriteReviewScreen';
+import PhotoGallery from '../components/PhotoGallery';
 import { formatDistance, addDistanceToRestrooms } from '../utils/distance';
 import { formatReviewDate, getInitials, getCategoryLabel } from '../utils/reviewHelpers';
 import { fetchReviews } from '../services/reviewService';
@@ -79,6 +80,9 @@ export default function MapScreen() {
   const [reviews, setReviews] = useState([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const [isFavorited, setIsFavorited] = useState(false);
+  const [galleryVisible, setGalleryVisible] = useState(false);
+  const [galleryPhotos, setGalleryPhotos] = useState([]);
+  const [galleryIndex, setGalleryIndex] = useState(0);
 
   const mapRef = useRef(null);
   const detailPanY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
@@ -192,6 +196,12 @@ export default function MapScreen() {
     } catch (error) {
       console.error('[MapScreen] Error toggling favorite:', error);
     }
+  };
+
+  const openPhotoGallery = (photos, index = 0) => {
+    setGalleryPhotos(photos);
+    setGalleryIndex(index);
+    setGalleryVisible(true);
   };
 
   useEffect(() => {
@@ -428,16 +438,32 @@ export default function MapScreen() {
     }
   };
 
-  const renderStars = (rating) => {
+  const renderStars = (rating, showRating = false) => {
     const stars = [];
     const fullStars = Math.floor(rating);
     const hasHalf = rating % 1 >= 0.5;
     for (let i = 0; i < 5; i++) {
-      if (i < fullStars) stars.push(<Text key={i} style={styles.starFilled}>★</Text>);
-      else if (i === fullStars && hasHalf) stars.push(<Text key={i} style={styles.starHalf}>★</Text>);
-      else stars.push(<Text key={i} style={styles.starEmpty}>★</Text>);
+      if (i < fullStars) {
+        stars.push(
+          <MaterialIcons key={i} name="star" size={16} color={Colors.coral} style={styles.starIcon} />
+        );
+      } else if (i === fullStars && hasHalf) {
+        stars.push(
+          <MaterialIcons key={i} name="star-half" size={16} color={Colors.coral} style={styles.starIcon} />
+        );
+      } else {
+        stars.push(
+          <MaterialIcons key={i} name="star-border" size={16} color="#D1D5DB" style={styles.starIcon} />
+        );
+      }
     }
-    return stars;
+
+    return (
+      <View style={styles.starsRow}>
+        {stars}
+        {showRating && <Text style={styles.starRatingText}>{rating.toFixed(1)}</Text>}
+      </View>
+    );
   };
 
   const amenityInfo = {
@@ -566,7 +592,7 @@ export default function MapScreen() {
             <MaterialIcons name="search" size={22} color="#717171" style={styles.searchIcon} />
             <TextInput
               style={styles.searchInput}
-              placeholder="Search city..."
+              placeholder="Drop zone..."
               value={searchQuery}
               onChangeText={searchLocation}
               onFocus={() => setShowSearchResults(searchResults.length > 0)}
@@ -730,8 +756,7 @@ export default function MapScreen() {
                 <Text style={styles.detailTitle}>{selectedRestroom.name}</Text>
                 <View style={styles.detailRatingRow}>
                   <View style={styles.starsContainer}>
-                    {renderStars(selectedRestroom.rating)}
-                    <Text style={styles.ratingNumber}>{selectedRestroom.rating.toFixed(1)}</Text>
+                    {renderStars(selectedRestroom.rating, true)}
                   </View>
                   <Text style={styles.reviewCount}>({selectedRestroom.reviews} reviews)</Text>
                 </View>
@@ -825,7 +850,7 @@ export default function MapScreen() {
                             </View>
                           </View>
                           <View style={styles.reviewRatings}>
-                            <View style={styles.reviewStars}>{renderStars(displayRating)}</View>
+                            <View style={styles.reviewStars}>{renderStars(displayRating, true)}</View>
                             {hasNewFormat ? (
                               <View style={styles.reviewCategoriesRow}>
                                 <Text style={styles.reviewCategoryPill}>
@@ -845,6 +870,27 @@ export default function MapScreen() {
                           {review.reviewText ? (
                             <Text style={styles.reviewText}>{review.reviewText}</Text>
                           ) : null}
+                          {review.photos && review.photos.length > 0 && (
+                            <ScrollView
+                              horizontal
+                              showsHorizontalScrollIndicator={false}
+                              style={styles.reviewPhotosScroll}
+                              contentContainerStyle={styles.reviewPhotosContent}
+                            >
+                              {review.photos.map((photoUrl, photoIndex) => (
+                                <TouchableOpacity
+                                  key={photoIndex}
+                                  onPress={() => openPhotoGallery(review.photos, photoIndex)}
+                                  activeOpacity={0.9}
+                                >
+                                  <Image
+                                    source={{ uri: photoUrl }}
+                                    style={styles.reviewPhotoThumbnail}
+                                  />
+                                </TouchableOpacity>
+                              ))}
+                            </ScrollView>
+                          )}
                         </View>
                       );
                     })}
@@ -926,6 +972,14 @@ export default function MapScreen() {
           }}
         />
       )}
+
+      {/* Photo Gallery Modal */}
+      <PhotoGallery
+        visible={galleryVisible}
+        photos={galleryPhotos}
+        initialIndex={galleryIndex}
+        onClose={() => setGalleryVisible(false)}
+      />
     </View>
   );
 }
@@ -1224,10 +1278,9 @@ const styles = StyleSheet.create({
   detailTitle: { fontSize: 26, fontWeight: '600', color: '#222222', marginBottom: 8, letterSpacing: -0.5 },
   detailRatingRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   starsContainer: { flexDirection: 'row', alignItems: 'center', marginRight: 8 },
-  starFilled: { fontSize: 14, color: Colors.coral, marginRight: 1 },
-  starHalf: { fontSize: 14, color: '#FF385C', marginRight: 1 },
-  starEmpty: { fontSize: 14, color: '#DDDDDD', marginRight: 1 },
-  ratingNumber: { fontSize: 14, fontWeight: '600', color: '#222222', marginLeft: 6 },
+  starsRow: { flexDirection: 'row', alignItems: 'center' },
+  starIcon: { marginRight: 1 },
+  starRatingText: { fontSize: 14, fontWeight: '600', color: '#222222', marginLeft: 6 },
   reviewCount: { fontSize: 14, color: '#717171' },
   detailAddress: { fontSize: 15, color: '#717171', lineHeight: 20 },
   detailDistance: { fontSize: 14, color: '#5D4037', fontWeight: '500', marginTop: 6 },
@@ -1284,4 +1337,8 @@ const styles = StyleSheet.create({
   priceSubtext: { fontSize: 14, color: '#717171' },
   directionsButton: { backgroundColor: Colors.coral, paddingHorizontal: 24, paddingVertical: 14, borderRadius: 8 },
   directionsButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
+  // Review photo styles
+  reviewPhotosScroll: { marginTop: 12, marginHorizontal: -24 },
+  reviewPhotosContent: { paddingHorizontal: 24, gap: 8 },
+  reviewPhotoThumbnail: { width: 120, height: 90, borderRadius: 8, backgroundColor: '#E5E7EB' },
 });

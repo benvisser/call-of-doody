@@ -5,6 +5,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { MaterialIcons } from '@expo/vector-icons';
 import MapScreen from './src/screens/MapScreen';
 import FavoritesScreen from './src/screens/FavoritesScreen';
+import ReviewsScreen from './src/screens/ReviewsScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 
 const Tab = createBottomTabNavigator();
@@ -13,7 +14,7 @@ export default function App() {
   return (
     <NavigationContainer>
       <Tab.Navigator
-        initialRouteName="Explore"
+        initialRouteName="Find"
         screenOptions={{
           headerShown: false,
           tabBarActiveTintColor: '#5D4037',
@@ -42,7 +43,7 @@ export default function App() {
         }}
       >
         <Tab.Screen
-          name="Explore"
+          name="Find"
           component={MapScreen}
           options={{
             tabBarIcon: ({ color, size }) => (
@@ -56,6 +57,15 @@ export default function App() {
           options={{
             tabBarIcon: ({ color, size }) => (
               <MaterialIcons name="favorite-outline" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tab.Screen
+          name="Reviews"
+          component={ReviewsScreen}
+          options={{
+            tabBarIcon: ({ color, size }) => (
+              <MaterialIcons name="star-outline" size={size} color={color} />
             ),
           }}
         />

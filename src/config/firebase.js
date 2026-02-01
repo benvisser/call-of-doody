@@ -12,15 +12,25 @@ const firebaseConfig = {
   appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
 };
 
+// Log config status on initialization (helps debug production issues)
+console.log('[Firebase] Config status:', {
+  apiKey: firebaseConfig.apiKey ? 'present' : 'MISSING',
+  projectId: firebaseConfig.projectId || 'MISSING',
+  storageBucket: firebaseConfig.storageBucket || 'MISSING',
+  appId: firebaseConfig.appId ? 'present' : 'MISSING',
+});
+
 // Check for missing configuration
 const missingVars = [];
 if (!firebaseConfig.apiKey) missingVars.push('EXPO_PUBLIC_FIREBASE_API_KEY');
 if (!firebaseConfig.projectId) missingVars.push('EXPO_PUBLIC_FIREBASE_PROJECT_ID');
 if (!firebaseConfig.appId) missingVars.push('EXPO_PUBLIC_FIREBASE_APP_ID');
+if (!firebaseConfig.storageBucket) missingVars.push('EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET');
 
 if (missingVars.length > 0) {
-  console.warn('Firebase config incomplete. Missing:', missingVars.join(', '));
-  console.warn('Add these to your .env file. See docs/FIREBASE_SETUP.md');
+  console.error('[Firebase] CONFIG MISSING:', missingVars.join(', '));
+  console.error('[Firebase] Ensure EAS env vars are set: eas env:list');
+  console.error('[Firebase] See docs/FIREBASE_SETUP.md');
 }
 
 // Check if using placeholder values
@@ -31,20 +41,48 @@ const isConfigured = firebaseConfig.projectId &&
 const AUTO_APPROVE_SUBMISSIONS = true;
 
 // Initialize Firebase only if not already initialized
-let app;
-let db;
-let storage;
+let app = null;
+let db = null;
+let storage = null;
+let initError = null;
 
 try {
-  app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+  if (getApps().length === 0) {
+    console.log('[Firebase] Initializing new app...');
+    app = initializeApp(firebaseConfig);
+  } else {
+    console.log('[Firebase] Using existing app instance');
+    app = getApps()[0];
+  }
   db = getFirestore(app);
   storage = getStorage(app);
+  console.log('[Firebase] Initialized successfully for project:', firebaseConfig.projectId);
 } catch (error) {
-  console.error('Firebase initialization failed:', error.message);
-  // Create placeholder to prevent crashes
-  db = null;
-  storage = null;
+  initError = error;
+  console.error('[Firebase] INITIALIZATION FAILED:', error.message);
+  console.error('[Firebase] Error code:', error.code);
+  console.error('[Firebase] Full error:', JSON.stringify(error, null, 2));
 }
+
+/**
+ * Check if Firebase is properly initialized
+ * @returns {{ initialized: boolean, error: string|null }}
+ */
+export const checkFirebaseStatus = () => {
+  if (initError) {
+    return { initialized: false, error: `Init failed: ${initError.message}` };
+  }
+  if (!isConfigured) {
+    return { initialized: false, error: 'Firebase not configured - check EAS env vars' };
+  }
+  if (!db) {
+    return { initialized: false, error: 'Firestore not initialized' };
+  }
+  if (!storage) {
+    return { initialized: false, error: 'Storage not initialized' };
+  }
+  return { initialized: true, error: null };
+};
 
 export { db, storage, isConfigured, AUTO_APPROVE_SUBMISSIONS };
 export default app;

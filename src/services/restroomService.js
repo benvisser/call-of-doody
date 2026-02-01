@@ -149,6 +149,37 @@ export const getCachedRestrooms = () => {
 };
 
 /**
+ * Retry a function with exponential backoff
+ * @param {Function} fn - Function to retry
+ * @param {number} maxRetries - Maximum number of retries
+ * @param {string} operationName - Name of operation for logging
+ * @returns {Promise<*>} Result of the function
+ */
+const retryWithBackoff = async (fn, maxRetries = 3, operationName = 'operation') => {
+  let lastError;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      console.warn(`[RestroomService] ${operationName} attempt ${attempt}/${maxRetries} failed:`, error.message);
+
+      // Don't retry permission errors - they won't succeed
+      if (error.code === 'permission-denied') {
+        throw error;
+      }
+
+      if (attempt < maxRetries) {
+        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+        console.log(`[RestroomService] Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  throw lastError;
+};
+
+/**
  * Add a new restroom to Firestore
  * If AUTO_APPROVE_SUBMISSIONS is true, adds directly to restrooms collection
  * Otherwise, adds to pending_restrooms for moderation
@@ -156,10 +187,15 @@ export const getCachedRestrooms = () => {
  * @returns {Promise<{success: boolean, id?: string, error?: string, autoApproved: boolean}>}
  */
 export const addRestroom = async (restroomData) => {
+  console.log('[RestroomService] addRestroom called');
+  console.log('[RestroomService] Firebase configured:', isConfigured);
+  console.log('[RestroomService] db instance:', db ? 'present' : 'MISSING');
+
   if (!isFirebaseConfigured()) {
+    console.error('[RestroomService] Firebase not configured - run: eas env:list');
     return {
       success: false,
-      error: 'Firebase not configured',
+      error: 'Firebase not configured. Please check app configuration.',
       autoApproved: false,
     };
   }
@@ -177,19 +213,40 @@ export const addRestroom = async (restroomData) => {
     };
 
     console.log(`[RestroomService] Adding to ${collection_name}:`, dataToAdd.name);
-    const docRef = await addDoc(collection(db, collection_name), dataToAdd);
+    console.log('[RestroomService] Data:', JSON.stringify(dataToAdd, null, 2));
 
-    console.log(`[RestroomService] Added with ID: ${docRef.id}`);
+    // Use retry logic for network resilience
+    const docRef = await retryWithBackoff(
+      () => addDoc(collection(db, collection_name), dataToAdd),
+      3,
+      'Firestore write'
+    );
+
+    console.log(`[RestroomService] SUCCESS! Added with ID: ${docRef.id}`);
     return {
       success: true,
       id: docRef.id,
       autoApproved: AUTO_APPROVE_SUBMISSIONS,
     };
   } catch (error) {
-    console.error('[RestroomService] Error adding restroom:', error);
+    console.error('[RestroomService] SUBMISSION FAILED');
+    console.error('[RestroomService] Error code:', error.code);
+    console.error('[RestroomService] Error message:', error.message);
+    console.error('[RestroomService] Full error:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+
+    // Provide specific error messages
+    let errorMessage = error.message || 'Failed to add restroom';
+    if (error.code === 'permission-denied') {
+      errorMessage = 'Permission denied. Firestore rules may need updating.';
+      console.error('[RestroomService] FIX: Update Firestore rules to allow writes. See docs/FIREBASE_SETUP.md');
+    } else if (error.code === 'unavailable') {
+      errorMessage = 'Service unavailable. Please check your internet connection.';
+    }
+
     return {
       success: false,
-      error: error.message || 'Failed to add restroom',
+      error: errorMessage,
+      code: error.code,
       autoApproved: false,
     };
   }

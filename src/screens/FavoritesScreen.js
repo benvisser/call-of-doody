@@ -94,7 +94,7 @@ export default function FavoritesScreen() {
   };
 
   const handleViewRestroom = (restroom) => {
-    navigation.navigate('Explore', { selectedRestroomId: restroom.id });
+    navigation.navigate('Find', { selectedRestroomId: restroom.id });
   };
 
   // Sort favorites based on selected option
@@ -122,9 +122,19 @@ export default function FavoritesScreen() {
     const fullStars = Math.floor(rating);
     const hasHalf = rating % 1 >= 0.5;
     for (let i = 0; i < 5; i++) {
-      if (i < fullStars) stars.push(<Text key={i} style={styles.starFilled}>★</Text>);
-      else if (i === fullStars && hasHalf) stars.push(<Text key={i} style={styles.starHalf}>★</Text>);
-      else stars.push(<Text key={i} style={styles.starEmpty}>★</Text>);
+      if (i < fullStars) {
+        stars.push(
+          <MaterialIcons key={i} name="star" size={14} color={Colors.coral} style={styles.starIcon} />
+        );
+      } else if (i === fullStars && hasHalf) {
+        stars.push(
+          <MaterialIcons key={i} name="star-half" size={14} color={Colors.coral} style={styles.starIcon} />
+        );
+      } else {
+        stars.push(
+          <MaterialIcons key={i} name="star-border" size={14} color="#D1D5DB" style={styles.starIcon} />
+        );
+      }
     }
     return stars;
   };
@@ -447,19 +457,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginRight: 6,
   },
-  starFilled: {
-    fontSize: 14,
-    color: Colors.coral,
-    marginRight: 1,
-  },
-  starHalf: {
-    fontSize: 14,
-    color: Colors.coral,
-    marginRight: 1,
-  },
-  starEmpty: {
-    fontSize: 14,
-    color: '#DDDDDD',
+  starIcon: {
     marginRight: 1,
   },
   ratingNumber: {

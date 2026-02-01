@@ -18,9 +18,13 @@ import {
   SafeAreaView,
   InputAccessoryView,
   Button,
+  Image,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { submitReview } from '../services/reviewService';
 import { Colors } from '../constants/colors';
+import { uploadMultipleReviewPhotos } from '../utils/imageUpload';
 import {
   RATING_CATEGORIES,
   getCategoryLabel,
@@ -42,9 +46,11 @@ export default function WriteReviewScreen({ visible, onClose, restroom, onSucces
     waitTime: 0,
   });
   const [reviewText, setReviewText] = useState('');
+  const [photos, setPhotos] = useState([]);
 
   // UI state
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState('');
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [textInputFocused, setTextInputFocused] = useState(false);
 
@@ -94,7 +100,7 @@ export default function WriteReviewScreen({ visible, onClose, restroom, onSucces
     }
   }, [visible]);
 
-  const hasContent = countFilledRatings(ratings) > 0 || reviewText.trim().length > 0;
+  const hasContent = countFilledRatings(ratings) > 0 || reviewText.trim().length > 0 || photos.length > 0;
 
   const handleClose = () => {
     Keyboard.dismiss();
@@ -144,10 +150,86 @@ export default function WriteReviewScreen({ visible, onClose, restroom, onSucces
       waitTime: 0,
     });
     setReviewText('');
+    setPhotos([]);
+    setUploadProgress('');
   };
 
   const canSubmit = hasAllRatings(ratings) && !isSubmitting;
   const filledCount = countFilledRatings(ratings);
+
+  // Photo functions
+  const pickImage = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permission needed',
+          'We need access to your photos to upload images.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setPhotos(prev => [...prev, { uri: result.assets[0].uri }]);
+      }
+    } catch (error) {
+      console.error('[WriteReview] Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image. Please try again.');
+    }
+  };
+
+  const takePhoto = async () => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permission needed',
+          'We need access to your camera to take photos.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setPhotos(prev => [...prev, { uri: result.assets[0].uri }]);
+      }
+    } catch (error) {
+      console.error('[WriteReview] Error taking photo:', error);
+      Alert.alert('Error', 'Failed to take photo. Please try again.');
+    }
+  };
+
+  const removePhoto = (index) => {
+    setPhotos(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const showPhotoOptions = () => {
+    Alert.alert(
+      'Add Photo',
+      'Choose an option',
+      [
+        { text: 'Take Photo', onPress: takePhoto },
+        { text: 'Choose from Library', onPress: pickImage },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  };
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
@@ -156,13 +238,39 @@ export default function WriteReviewScreen({ visible, onClose, restroom, onSucces
     setIsSubmitting(true);
 
     try {
+      // Upload photos first if any
+      let photoUrls = [];
+      if (photos.length > 0) {
+        setUploadProgress('Uploading photos...');
+        try {
+          photoUrls = await uploadMultipleReviewPhotos(
+            photos,
+            restroom.id,
+            (current, total) => {
+              setUploadProgress(`Uploading photo ${current}/${total}...`);
+            }
+          );
+        } catch (uploadError) {
+          console.error('[WriteReview] Photo upload error:', uploadError);
+          // Continue without photos if upload fails
+          Alert.alert(
+            'Photo Upload Issue',
+            'Photos could not be uploaded, but your review will still be posted.',
+            [{ text: 'OK' }]
+          );
+        }
+        setUploadProgress('');
+      }
+
       const averageRating = calculateAverageFromRatings(ratings);
 
       const reviewData = {
         restroomId: restroom.id,
+        restroomName: restroom.name,
         ratings,
         averageRating,
         reviewText: reviewText.trim(),
+        photos: photoUrls,
       };
 
       console.log('[WriteReview] Submitting review:', reviewData);
@@ -193,6 +301,7 @@ export default function WriteReviewScreen({ visible, onClose, restroom, onSucces
       );
     } finally {
       setIsSubmitting(false);
+      setUploadProgress('');
     }
   };
 
@@ -341,6 +450,45 @@ export default function WriteReviewScreen({ visible, onClose, restroom, onSucces
 
                   <View style={styles.divider} />
 
+                  {/* Photo Section */}
+                  <View style={styles.photoSection}>
+                    <Text style={styles.photoSectionTitle}>Add Photos (optional)</Text>
+                    <Text style={styles.photoHint}>
+                      Show what you saw (keep it classy please)
+                    </Text>
+
+                    <View style={styles.photoGrid}>
+                      {photos.map((photo, index) => (
+                        <View key={index} style={styles.photoContainer}>
+                          <Image source={{ uri: photo.uri }} style={styles.photoThumbnail} />
+                          <TouchableOpacity
+                            style={styles.removePhotoButton}
+                            onPress={() => removePhoto(index)}
+                          >
+                            <MaterialIcons name="close" size={16} color="#FFFFFF" />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+
+                      {photos.length < 3 && (
+                        <TouchableOpacity
+                          style={styles.addPhotoButton}
+                          onPress={showPhotoOptions}
+                          activeOpacity={0.7}
+                        >
+                          <MaterialIcons name="add-photo-alternate" size={32} color="#6B7280" />
+                          <Text style={styles.addPhotoText}>Add Photo</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+
+                    <Text style={styles.photoCount}>
+                      {photos.length} / 3 photos
+                    </Text>
+                  </View>
+
+                  <View style={styles.divider} />
+
                   {/* Written Review */}
                   <View style={styles.textSection}>
                     <Text style={styles.textSectionTitle}>Tell us more (optional)</Text>
@@ -387,7 +535,9 @@ export default function WriteReviewScreen({ visible, onClose, restroom, onSucces
                   {isSubmitting ? (
                     <View style={styles.submitButtonContent}>
                       <ActivityIndicator size="small" color="#FFFFFF" />
-                      <Text style={styles.submitButtonText}>Posting...</Text>
+                      <Text style={styles.submitButtonText}>
+                        {uploadProgress || 'Posting...'}
+                      </Text>
                     </View>
                   ) : (
                     <Text style={styles.submitButtonText}>
@@ -661,5 +811,72 @@ const styles = StyleSheet.create({
   },
   keyboardToolbarSpacer: {
     flex: 1,
+  },
+  // Photo section styles
+  photoSection: {
+    paddingHorizontal: 24,
+    paddingVertical: 24,
+  },
+  photoSectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#222222',
+    marginBottom: 4,
+  },
+  photoHint: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginBottom: 16,
+    fontStyle: 'italic',
+  },
+  photoGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  photoContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 12,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  photoThumbnail: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#E5E7EB',
+  },
+  removePhotoButton: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  addPhotoButton: {
+    width: 100,
+    height: 100,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+    borderStyle: 'dashed',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+  },
+  addPhotoText: {
+    fontSize: 11,
+    color: '#6B7280',
+    marginTop: 4,
+    fontWeight: '500',
+  },
+  photoCount: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 12,
   },
 });

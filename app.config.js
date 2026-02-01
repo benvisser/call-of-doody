@@ -24,7 +24,9 @@ export default {
         googleMapsApiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_IOS_API_KEY
       },
       infoPlist: {
-        NSLocationWhenInUseUsageDescription: "This app needs access to your location to find nearby restrooms."
+        NSLocationWhenInUseUsageDescription: "This app needs access to your location to find nearby restrooms.",
+        NSPhotoLibraryUsageDescription: "Call of Doody needs access to your photo library to upload restroom photos.",
+        NSCameraUsageDescription: "Call of Doody needs access to your camera to take restroom photos."
       }
     },
     android: {
