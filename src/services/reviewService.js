@@ -77,8 +77,9 @@ export const submitReview = async (reviewData) => {
       // Create review document with 4-category structure
       const reviewDoc = {
         restroomId: reviewData.restroomId,
-        userId: 'anonymous',
-        userName: 'Anonymous User',
+        restroomName: reviewData.restroomName || '',
+        userId: reviewData.userId || 'anonymous',
+        userName: reviewData.userName || 'Anonymous User',
         ratings: {
           cleanliness: ratings.cleanliness,
           supplies: ratings.supplies,

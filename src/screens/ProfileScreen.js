@@ -17,6 +17,8 @@ import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db, isConfigured } from '../config/firebase';
 import { getFavorites } from '../utils/favoritesStorage';
 import { Colors } from '../constants/colors';
+import { useAuth } from '../context/AuthContext';
+import LoginPrompt from '../components/LoginPrompt';
 
 // Badge definitions (same as ReviewsScreen)
 const BADGE_DEFINITIONS = [
@@ -84,48 +86,61 @@ const getAppVersion = () => {
 };
 
 // Profile Card Component
-const ProfileCard = ({ stats }) => (
-  <View style={styles.profileCard}>
-    <View style={styles.profileTop}>
-      {/* Avatar */}
-      <View style={styles.avatarContainer}>
-        <View style={styles.avatar}>
-          <MaterialIcons name="person" size={48} color="#6B7280" />
+const ProfileCard = ({ stats, userProfile, isAuthenticated }) => {
+  const displayName = userProfile?.displayName || 'Anonymous User';
+  const avatarEmoji = userProfile?.avatarEmoji || null;
+  const username = userProfile?.username;
+  const memberSince = userProfile?.createdAt?.toDate?.()?.getFullYear() || new Date().getFullYear();
+
+  return (
+    <View style={styles.profileCard}>
+      <View style={styles.profileTop}>
+        {/* Avatar */}
+        <View style={styles.avatarContainer}>
+          <View style={styles.avatar}>
+            {avatarEmoji ? (
+              <Text style={styles.avatarEmoji}>{avatarEmoji}</Text>
+            ) : (
+              <MaterialIcons name="person" size={48} color="#6B7280" />
+            )}
+          </View>
+          {isAuthenticated && (
+            <View style={styles.verifiedBadge}>
+              <MaterialIcons name="verified" size={16} color="#FFFFFF" />
+            </View>
+          )}
         </View>
-        <View style={styles.verifiedBadge}>
-          <MaterialIcons name="verified" size={16} color="#FFFFFF" />
+
+        {/* Stats */}
+        <View style={styles.statsContainer}>
+          <View style={styles.statItem}>
+            <Text style={styles.statNumber}>{stats.restroomsAdded}</Text>
+            <Text style={styles.statLabel}>Added</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Text style={styles.statNumber}>{stats.reviewCount}</Text>
+            <Text style={styles.statLabel}>Reviews</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Text style={styles.statNumber}>{stats.favoritesCount}</Text>
+            <Text style={styles.statLabel}>Favorites</Text>
+          </View>
         </View>
       </View>
 
-      {/* Stats */}
-      <View style={styles.statsContainer}>
-        <View style={styles.statItem}>
-          <Text style={styles.statNumber}>{stats.restroomsAdded}</Text>
-          <Text style={styles.statLabel}>Added</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statItem}>
-          <Text style={styles.statNumber}>{stats.reviewCount}</Text>
-          <Text style={styles.statLabel}>Reviews</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statItem}>
-          <Text style={styles.statNumber}>{stats.favoritesCount}</Text>
-          <Text style={styles.statLabel}>Favorites</Text>
-        </View>
+      {/* User info */}
+      <View style={styles.profileInfo}>
+        <Text style={styles.userName}>{displayName}</Text>
+        {username && <Text style={styles.userHandle}>@{username}</Text>}
+        <Text style={styles.userSince}>
+          Member since {memberSince}
+        </Text>
       </View>
     </View>
-
-    {/* User info */}
-    <View style={styles.profileInfo}>
-      <Text style={styles.userName}>Anonymous User</Text>
-      <Text style={styles.userLocation}>Rock Hill, SC</Text>
-      <Text style={styles.userSince}>
-        Member since {new Date().getFullYear()}
-      </Text>
-    </View>
-  </View>
-);
+  );
+};
 
 // Latest Badge Component
 const LatestBadgeSection = ({ badge, onViewAll }) => {
@@ -172,7 +187,7 @@ const MenuItem = ({ icon, label, subtitle, onPress, showDivider = true, comingSo
 );
 
 // Settings Menu Component
-const SettingsMenu = ({ onShare, appVersion, onSettings }) => (
+const SettingsMenu = ({ onShare, appVersion, onSettings, isAuthenticated, onSignOut, onSignIn }) => (
   <View style={styles.settingsSection}>
     {/* Account Settings Group */}
     <View style={styles.menuGroup}>
@@ -223,6 +238,21 @@ const SettingsMenu = ({ onShare, appVersion, onSettings }) => (
       />
     </View>
 
+    {/* Sign In / Sign Out */}
+    <View style={styles.menuGroup}>
+      {isAuthenticated ? (
+        <TouchableOpacity style={styles.signOutButton} onPress={onSignOut} activeOpacity={0.7}>
+          <MaterialIcons name="logout" size={20} color="#EF4444" />
+          <Text style={styles.signOutText}>Sign Out</Text>
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity style={styles.signInButton} onPress={onSignIn} activeOpacity={0.7}>
+          <MaterialIcons name="login" size={20} color={Colors.coral} />
+          <Text style={styles.signInText}>Sign In</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+
     {/* App Version */}
     <View style={styles.versionContainer}>
       <Text style={styles.versionText}>
@@ -236,6 +266,7 @@ const SettingsMenu = ({ onShare, appVersion, onSettings }) => (
 );
 
 export default function ProfileScreen({ navigation }) {
+  const { isAuthenticated, user, userProfile, loading: authLoading, signOut, needsProfileSetup } = useAuth();
   const [stats, setStats] = useState({
     reviewCount: 0,
     favoritesCount: 0,
@@ -243,6 +274,16 @@ export default function ProfileScreen({ navigation }) {
   });
   const [latestBadge, setLatestBadge] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [showLoginPrompt, setShowLoginPrompt] = useState(true);
+
+  // Navigate to profile setup if needed
+  useFocusEffect(
+    useCallback(() => {
+      if (isAuthenticated && needsProfileSetup) {
+        navigation.navigate('ProfileSetup');
+      }
+    }, [isAuthenticated, needsProfileSetup, navigation])
+  );
 
   const loadProfileData = useCallback(async () => {
     try {
@@ -254,10 +295,11 @@ export default function ProfileScreen({ navigation }) {
       // Get reviews and restrooms added from Firebase
       if (isConfigured && db) {
         try {
-          // Get reviews count
+          // Get reviews count - use actual userId if authenticated
+          const userId = user?.uid || 'anonymous';
           const reviewsQuery = query(
             collection(db, 'reviews'),
-            where('userId', '==', 'anonymous')
+            where('userId', '==', userId)
           );
           const reviewsSnapshot = await getDocs(reviewsQuery);
           reviewsSnapshot.forEach(doc => reviewsData.push({ id: doc.id, ...doc.data() }));
@@ -265,7 +307,7 @@ export default function ProfileScreen({ navigation }) {
           // Get restrooms added count
           const restroomsQuery = query(
             collection(db, 'pending_restrooms'),
-            where('userId', '==', 'anonymous')
+            where('userId', '==', userId)
           );
           const restroomsSnapshot = await getDocs(restroomsQuery);
           restroomsAddedCount = restroomsSnapshot.size;
@@ -273,7 +315,7 @@ export default function ProfileScreen({ navigation }) {
           // Also check approved restrooms
           const approvedQuery = query(
             collection(db, 'restrooms'),
-            where('submittedBy', '==', 'anonymous')
+            where('submittedBy', '==', userId)
           );
           const approvedSnapshot = await getDocs(approvedQuery);
           restroomsAddedCount += approvedSnapshot.size;
@@ -282,13 +324,17 @@ export default function ProfileScreen({ navigation }) {
         }
       }
 
-      // Get favorites count from AsyncStorage
+      // Get favorites count from AsyncStorage (or userProfile if authenticated)
       let favoritesCount = 0;
-      try {
-        const favorites = await getFavorites();
-        favoritesCount = favorites.length;
-      } catch (error) {
-        console.log('[ProfileScreen] Error loading favorites:', error.message);
+      if (userProfile?.stats?.favoritesCount !== undefined) {
+        favoritesCount = userProfile.stats.favoritesCount;
+      } else {
+        try {
+          const favorites = await getFavorites();
+          favoritesCount = favorites.length;
+        } catch (error) {
+          console.log('[ProfileScreen] Error loading favorites:', error.message);
+        }
       }
 
       setStats({
@@ -316,7 +362,7 @@ export default function ProfileScreen({ navigation }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user, userProfile]);
 
   // Reload data when screen is focused
   useFocusEffect(
@@ -350,7 +396,58 @@ export default function ProfileScreen({ navigation }) {
     navigation.navigate('Settings');
   };
 
+  const handleSignIn = () => {
+    navigation.navigate('Auth', { feature: 'profile' });
+  };
+
+  const handleSignOut = () => {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await signOut();
+            } catch (error) {
+              Alert.alert('Error', 'Failed to sign out. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const appVersion = getAppVersion();
+
+  // Show auth loading state
+  if (authLoading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Profile</Text>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors.coral} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Show login prompt if not authenticated (optional - user can skip)
+  if (!isAuthenticated && showLoginPrompt) {
+    return (
+      <LoginPrompt
+        feature="profile"
+        onLogin={() => navigation.navigate('Auth', { feature: 'profile' })}
+        onSkip={() => setShowLoginPrompt(false)}
+        showSkip={true}
+      />
+    );
+  }
 
   if (loading) {
     return (
@@ -374,13 +471,20 @@ export default function ProfileScreen({ navigation }) {
         </View>
 
         {/* Profile Card */}
-        <ProfileCard stats={stats} />
+        <ProfileCard stats={stats} userProfile={userProfile} isAuthenticated={isAuthenticated} />
 
         {/* Latest Badge */}
         <LatestBadgeSection badge={latestBadge} onViewAll={handleViewAllBadges} />
 
         {/* Settings Menu */}
-        <SettingsMenu onShare={handleShare} appVersion={appVersion} onSettings={handleSettings} />
+        <SettingsMenu
+          onShare={handleShare}
+          appVersion={appVersion}
+          onSettings={handleSettings}
+          isAuthenticated={isAuthenticated}
+          onSignOut={handleSignOut}
+          onSignIn={handleSignIn}
+        />
 
         {/* Bottom padding */}
         <View style={{ height: 40 }} />
@@ -488,10 +592,18 @@ const styles = StyleSheet.create({
     borderTopColor: '#E5E7EB',
     paddingTop: 16,
   },
+  avatarEmoji: {
+    fontSize: 40,
+  },
   userName: {
     fontSize: 20,
     fontWeight: '700',
     color: '#111827',
+    marginBottom: 4,
+  },
+  userHandle: {
+    fontSize: 15,
+    color: Colors.coral,
     marginBottom: 4,
   },
   userLocation: {
@@ -616,6 +728,32 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#6B7280',
     marginTop: 2,
+  },
+
+  // Sign In / Sign Out
+  signOutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    gap: 8,
+  },
+  signOutText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#EF4444',
+  },
+  signInButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    gap: 8,
+  },
+  signInText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.coral,
   },
 
   // Version

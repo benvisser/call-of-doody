@@ -1,6 +1,8 @@
 import { initializeApp, getApps } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
+import { initializeAuth, getReactNativePersistence } from 'firebase/auth';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Firebase configuration from environment variables
 const firebaseConfig = {
@@ -44,6 +46,7 @@ const AUTO_APPROVE_SUBMISSIONS = true;
 let app = null;
 let db = null;
 let storage = null;
+let auth = null;
 let initError = null;
 
 try {
@@ -56,6 +59,10 @@ try {
   }
   db = getFirestore(app);
   storage = getStorage(app);
+  // Initialize auth with React Native persistence
+  auth = initializeAuth(app, {
+    persistence: getReactNativePersistence(AsyncStorage),
+  });
   console.log('[Firebase] Initialized successfully for project:', firebaseConfig.projectId);
 } catch (error) {
   initError = error;
@@ -84,5 +91,5 @@ export const checkFirebaseStatus = () => {
   return { initialized: true, error: null };
 };
 
-export { db, storage, isConfigured, AUTO_APPROVE_SUBMISSIONS };
+export { db, storage, auth, isConfigured, AUTO_APPROVE_SUBMISSIONS };
 export default app;

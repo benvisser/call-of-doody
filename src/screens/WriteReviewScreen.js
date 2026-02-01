@@ -23,6 +23,7 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { submitReview } from '../services/reviewService';
+import { useAuth } from '../context/AuthContext';
 import { Colors } from '../constants/colors';
 import { uploadMultipleReviewPhotos } from '../utils/imageUpload';
 import {
@@ -38,6 +39,8 @@ const MAX_REVIEW_LENGTH = 500;
 const INPUT_ACCESSORY_VIEW_ID = 'reviewTextInputAccessory';
 
 export default function WriteReviewScreen({ visible, onClose, restroom, onSuccess }) {
+  const { user, userProfile } = useAuth();
+
   // Form state - 4 category ratings
   const [ratings, setRatings] = useState({
     cleanliness: 0,
@@ -271,6 +274,8 @@ export default function WriteReviewScreen({ visible, onClose, restroom, onSucces
         averageRating,
         reviewText: reviewText.trim(),
         photos: photoUrls,
+        userId: user?.uid || 'anonymous',
+        userName: userProfile?.displayName || 'Anonymous User',
       };
 
       console.log('[WriteReview] Submitting review:', reviewData);

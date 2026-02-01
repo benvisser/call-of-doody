@@ -18,6 +18,8 @@ import { collection, query, where, getDocs, deleteDoc, doc, orderBy } from 'fire
 import { db, isConfigured } from '../config/firebase';
 import { fetchRestrooms } from '../services/restroomService';
 import { Colors } from '../constants/colors';
+import { useAuth } from '../context/AuthContext';
+import LoginPrompt from '../components/LoginPrompt';
 
 // Badge definitions - Western/vintage style with bathroom humor
 const BADGE_DEFINITIONS = [
@@ -168,12 +170,14 @@ const SORT_OPTIONS = [
 ];
 
 export default function ReviewsScreen({ navigation }) {
+  const { isAuthenticated, user, loading: authLoading } = useAuth();
   const [reviews, setReviews] = useState([]);
   const [badges, setBadges] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [sortBy, setSortBy] = useState('date');
   const [showSortMenu, setShowSortMenu] = useState(false);
+  const [showLoginPrompt, setShowLoginPrompt] = useState(true);
 
   const loadReviews = useCallback(async () => {
     if (!isConfigured || !db) {
@@ -183,11 +187,11 @@ export default function ReviewsScreen({ navigation }) {
     }
 
     try {
-      // For now, get reviews by anonymous user
-      // Later: filter by actual userId when auth is implemented
+      // Get reviews for current user, or anonymous if not logged in
+      const userId = user?.uid || 'anonymous';
       const q = query(
         collection(db, 'reviews'),
-        where('userId', '==', 'anonymous')
+        where('userId', '==', userId)
       );
 
       const snapshot = await getDocs(q);
@@ -237,7 +241,7 @@ export default function ReviewsScreen({ navigation }) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [user]);
 
   // Load reviews when screen comes into focus
   useFocusEffect(
@@ -457,6 +461,32 @@ export default function ReviewsScreen({ navigation }) {
       </View>
     );
   };
+
+  // Show auth loading state
+  if (authLoading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Your Reviews</Text>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors.coral} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Show login prompt if not authenticated
+  if (!isAuthenticated && showLoginPrompt) {
+    return (
+      <LoginPrompt
+        feature="reviews"
+        onLogin={() => navigation.navigate('Auth', { feature: 'reviews' })}
+        onSkip={() => setShowLoginPrompt(false)}
+        showSkip={true}
+      />
+    );
+  }
 
   if (loading) {
     return (

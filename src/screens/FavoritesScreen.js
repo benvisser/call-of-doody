@@ -17,6 +17,8 @@ import { Colors } from '../constants/colors';
 import { getFavorites, removeFavorite } from '../utils/favoritesStorage';
 import { fetchRestrooms } from '../services/restroomService';
 import { formatDistance, addDistanceToRestrooms } from '../utils/distance';
+import { useAuth } from '../context/AuthContext';
+import LoginPrompt from '../components/LoginPrompt';
 
 const SORT_OPTIONS = [
   { key: 'distance', label: 'Nearest', icon: 'near-me' },
@@ -26,12 +28,14 @@ const SORT_OPTIONS = [
 
 export default function FavoritesScreen() {
   const navigation = useNavigation();
+  const { isAuthenticated, loading: authLoading } = useAuth();
   const [favorites, setFavorites] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
   const [sortBy, setSortBy] = useState('distance');
   const [showSortMenu, setShowSortMenu] = useState(false);
+  const [showLoginPrompt, setShowLoginPrompt] = useState(true);
 
   // Get user location on mount
   useEffect(() => {
@@ -197,6 +201,32 @@ export default function FavoritesScreen() {
       </View>
     </TouchableOpacity>
   );
+
+  // Show auth loading state
+  if (authLoading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Favorites</Text>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors.coral} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Show login prompt if not authenticated
+  if (!isAuthenticated && showLoginPrompt) {
+    return (
+      <LoginPrompt
+        feature="favorites"
+        onLogin={() => navigation.navigate('Auth', { feature: 'favorites' })}
+        onSkip={() => setShowLoginPrompt(false)}
+        showSkip={true}
+      />
+    );
+  }
 
   if (loading) {
     return (
