@@ -7,9 +7,11 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "migrate": "node scripts/migrate.js"
+    "migrate": "node scripts/migrate.js",
+    "seed": "node scripts/seedUptownCharlotte.js"
   },
   "dependencies": {
+    "@googlemaps/google-maps-services-js": "^3.4.2",
     "@react-native-async-storage/async-storage": "^1.24.0",
     "@react-navigation/bottom-tabs": "^7.10.1",
     "@react-navigation/native": "^7.0.0",
