@@ -149,14 +149,21 @@ const LatestBadgeSection = ({ badge, onViewAll }) => {
 };
 
 // Menu Item Component
-const MenuItem = ({ icon, label, subtitle, onPress, showDivider = true }) => (
+const MenuItem = ({ icon, label, subtitle, onPress, showDivider = true, comingSoon = false }) => (
   <TouchableOpacity style={[styles.menuItem, !showDivider && styles.menuItemNoBorder]} onPress={onPress} activeOpacity={0.7}>
     <View style={styles.menuItemLeft}>
       <View style={styles.menuIconContainer}>
         <MaterialIcons name={icon} size={24} color="#6B7280" />
       </View>
       <View style={styles.menuTextContainer}>
-        <Text style={styles.menuLabel}>{label}</Text>
+        <View style={styles.menuLabelRow}>
+          <Text style={styles.menuLabel}>{label}</Text>
+          {comingSoon && (
+            <View style={styles.comingSoonTag}>
+              <Text style={styles.comingSoonText}>Coming Soon</Text>
+            </View>
+          )}
+        </View>
         {subtitle && <Text style={styles.menuSubtitle}>{subtitle}</Text>}
       </View>
     </View>
@@ -165,19 +172,20 @@ const MenuItem = ({ icon, label, subtitle, onPress, showDivider = true }) => (
 );
 
 // Settings Menu Component
-const SettingsMenu = ({ onShare, appVersion }) => (
+const SettingsMenu = ({ onShare, appVersion, onSettings }) => (
   <View style={styles.settingsSection}>
     {/* Account Settings Group */}
     <View style={styles.menuGroup}>
       <MenuItem
         icon="settings"
         label="Settings"
-        onPress={() => Alert.alert('Coming Soon', 'Settings will be available after authentication is added.')}
+        onPress={onSettings}
       />
       <MenuItem
         icon="notifications-none"
         label="Notifications"
         onPress={() => Alert.alert('Coming Soon', 'Notification preferences coming soon.')}
+        comingSoon
       />
       <MenuItem
         icon="help-outline"
@@ -204,12 +212,14 @@ const SettingsMenu = ({ onShare, appVersion }) => (
         icon="privacy-tip"
         label="Privacy Policy"
         onPress={() => Alert.alert('Privacy', 'Privacy policy coming soon.')}
+        comingSoon
       />
       <MenuItem
         icon="description"
         label="Terms of Service"
         onPress={() => Alert.alert('Terms', 'Terms of service coming soon.')}
         showDivider={false}
+        comingSoon
       />
     </View>
 
@@ -336,6 +346,10 @@ export default function ProfileScreen({ navigation }) {
     navigation.navigate('Reviews');
   };
 
+  const handleSettings = () => {
+    navigation.navigate('Settings');
+  };
+
   const appVersion = getAppVersion();
 
   if (loading) {
@@ -366,7 +380,7 @@ export default function ProfileScreen({ navigation }) {
         <LatestBadgeSection badge={latestBadge} onViewAll={handleViewAllBadges} />
 
         {/* Settings Menu */}
-        <SettingsMenu onShare={handleShare} appVersion={appVersion} />
+        <SettingsMenu onShare={handleShare} appVersion={appVersion} onSettings={handleSettings} />
 
         {/* Bottom padding */}
         <View style={{ height: 40 }} />
@@ -576,10 +590,27 @@ const styles = StyleSheet.create({
   menuTextContainer: {
     flex: 1,
   },
+  menuLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   menuLabel: {
     fontSize: 16,
     fontWeight: '500',
     color: '#111827',
+  },
+  comingSoonTag: {
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginLeft: 8,
+  },
+  comingSoonText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#D97706',
+    textTransform: 'uppercase',
   },
   menuSubtitle: {
     fontSize: 13,
