@@ -195,7 +195,8 @@ service cloud.firestore {
                     && request.resource.data.ratings.accessibility <= 5
                     && request.resource.data.ratings.waitTime >= 1
                     && request.resource.data.ratings.waitTime <= 5;
-      allow update, delete: if false;
+      allow delete: if true;  // Allow users to delete their own reviews
+      allow update: if false;
     }
   }
 }
@@ -234,7 +235,10 @@ service cloud.firestore {
                     && request.resource.data.ratings.accessibility <= 5
                     && request.resource.data.ratings.waitTime >= 1
                     && request.resource.data.ratings.waitTime <= 5;
-      allow update, delete: if false;
+      // Only allow delete if user owns the review
+      allow delete: if request.auth != null
+                    && resource.data.userId == request.auth.uid;
+      allow update: if false;
     }
   }
 }
