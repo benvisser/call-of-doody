@@ -15,6 +15,8 @@ import {
   Keyboard,
   Linking,
   Alert,
+  StatusBar,
+  Platform,
 } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
@@ -28,6 +30,7 @@ import WriteReviewScreen from './WriteReviewScreen';
 import { formatDistance, addDistanceToRestrooms } from '../utils/distance';
 import { formatReviewDate, getInitials, getCategoryLabel } from '../utils/reviewHelpers';
 import { fetchReviews } from '../services/reviewService';
+import { Colors } from '../constants/colors';
 import Constants from 'expo-constants';
 
 // Debug: Check if Google Maps API key is configured (helps diagnose TestFlight issues)
@@ -387,6 +390,7 @@ export default function MapScreen() {
 
   return (
     <View style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
       {mapError ? (
         <View style={styles.mapErrorContainer}>
           <Text style={styles.mapErrorIcon}>🗺️</Text>
@@ -419,26 +423,68 @@ export default function MapScreen() {
           setMapError(error?.nativeEvent?.error || 'Unknown map error');
         }}
       >
-        {filteredRestrooms.map((restroom) => (
-          <Marker
-            key={restroom.id}
-            coordinate={{
-              latitude: restroom.latitude,
-              longitude: restroom.longitude,
-            }}
-            onPress={() => openDetail(restroom)}
-            tracksViewChanges={false}
-          >
-            <View style={[
-              styles.marker,
-              selectedRestroom?.id === restroom.id && styles.markerSelected
-            ]}>
-              <View style={styles.markerInner}>
-                <Text style={styles.markerIcon}>🚽</Text>
+        {filteredRestrooms.map((restroom) => {
+          const isSelected = selectedRestroom?.id === restroom.id;
+          const hasReviews = restroom.reviews > 0;
+
+          return (
+            <Marker
+              key={restroom.id}
+              coordinate={{
+                latitude: restroom.latitude,
+                longitude: restroom.longitude,
+              }}
+              onPress={() => openDetail(restroom)}
+              tracksViewChanges={false}
+              zIndex={isSelected ? 1000 : 1}
+              anchor={{ x: 0.5, y: 1 }}
+            >
+              <View style={styles.markerCard}>
+                <View style={[
+                  styles.cardContent,
+                  isSelected && styles.cardContentSelected
+                ]}>
+                  {/* Icon on left */}
+                  <MaterialIcons name="location-on" size={28} color={Colors.coral} style={styles.markerIcon} />
+
+                  {/* Info on right */}
+                  <View style={styles.infoContainer}>
+                    <Text style={styles.restroomName} numberOfLines={1}>
+                      {restroom.name}
+                    </Text>
+                    <View style={styles.metaRow}>
+                      {hasReviews ? (
+                        <>
+                          <Text style={styles.markerRating}>
+                            ⭐ {restroom.rating.toFixed(1)}
+                          </Text>
+                        </>
+                      ) : (
+                        <View style={styles.newBadge}>
+                          <Text style={styles.newBadgeText}>NEW</Text>
+                        </View>
+                      )}
+                      {restroom.distance !== undefined && (
+                        <>
+                          <Text style={styles.dot}>•</Text>
+                          <Text style={styles.markerDistance}>
+                            {formatDistance(restroom.distance)}
+                          </Text>
+                        </>
+                      )}
+                    </View>
+                  </View>
+                </View>
+
+                {/* Pointer triangle */}
+                <View style={[
+                  styles.cardPointer,
+                  isSelected && styles.cardPointerSelected
+                ]} />
               </View>
-            </View>
-          </Marker>
-        ))}
+            </Marker>
+          );
+        })}
       </MapView>
 
       {/* Search Bar and Filter Button */}
@@ -470,11 +516,10 @@ export default function MapScreen() {
 
           {/* Filter Button */}
           <TouchableOpacity
-            style={styles.filterButton}
+            style={[styles.filterButton, hasActiveFilters && styles.filterButtonActive]}
             onPress={() => setShowFilterModal(true)}
           >
-            <MaterialIcons name="tune" size={24} color="#5D4037" />
-            {hasActiveFilters && <View style={styles.filterBadge} />}
+            <MaterialIcons name="tune" size={24} color={hasActiveFilters ? Colors.white : Colors.brownDark} />
           </TouchableOpacity>
         </View>
 
@@ -547,7 +592,7 @@ export default function MapScreen() {
         onPress={() => setShowAddRestroomModal(true)}
         activeOpacity={0.9}
       >
-        <MaterialIcons name="add-circle" size={32} color="#8B7355" />
+        <MaterialIcons name="add-location" size={32} color={Colors.white} />
       </TouchableOpacity>
 
       {/* Current Location Button */}
@@ -557,7 +602,7 @@ export default function MapScreen() {
           onPress={goToCurrentLocation}
           activeOpacity={0.9}
         >
-          <MaterialIcons name="my-location" size={24} color="#8B7355" />
+          <MaterialIcons name="my-location" size={24} color={Colors.coral} />
         </TouchableOpacity>
       )}
 
@@ -810,7 +855,7 @@ const styles = StyleSheet.create({
   mapErrorTitle: { fontSize: 20, fontWeight: '600', color: '#222222', marginBottom: 8 },
   mapErrorText: { fontSize: 14, color: '#717171', textAlign: 'center', marginBottom: 16 },
   mapErrorHint: { fontSize: 12, color: '#999999', textAlign: 'center', maxWidth: 280 },
-  searchContainer: { position: 'absolute', top: 30, left: 16, right: 16, zIndex: 10 },
+  searchContainer: { position: 'absolute', top: Platform.OS === 'ios' ? 90 : (StatusBar.currentHeight || 24) + 16, left: 16, right: 16, zIndex: 10 },
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   searchBar: {
     flex: 1,
@@ -830,7 +875,7 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: Colors.white,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
@@ -839,14 +884,8 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 5,
   },
-  filterBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#FF385C',
+  filterButtonActive: {
+    backgroundColor: Colors.coral,
   },
   filterChipsContainer: {
     marginTop: 10,
@@ -860,25 +899,22 @@ const styles = StyleSheet.create({
   filterChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: Colors.coralLight,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: Colors.coral,
   },
   filterChipText: {
     fontSize: 13,
-    color: '#5D4037',
+    color: Colors.coralDark,
     fontWeight: '500',
     marginRight: 6,
   },
   filterChipClose: {
     fontSize: 12,
-    color: '#717171',
+    color: Colors.coral,
   },
   noResultsContainer: {
     position: 'absolute',
@@ -968,23 +1004,23 @@ const styles = StyleSheet.create({
   errorDismiss: { color: '#991B1B', fontSize: 18, paddingLeft: 12 },
   addButton: {
     position: 'absolute',
-    bottom: 112,
+    bottom: Platform.OS === 'ios' ? 117 : 97,
     right: 16,
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: Colors.coral,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
+    shadowOpacity: 0.3,
     shadowRadius: 8,
-    elevation: 5,
+    elevation: 6,
   },
   locationButton: {
     position: 'absolute',
-    bottom: 40,
+    bottom: Platform.OS === 'ios' ? 48 : 28,
     right: 16,
     width: 56,
     height: 56,
@@ -998,10 +1034,89 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 5,
   },
-  marker: { alignItems: 'center' },
-  markerSelected: { transform: [{ scale: 1.2 }] },
-  markerInner: { backgroundColor: '#FFFFFF', padding: 8, borderRadius: 24, borderWidth: 2, borderColor: '#5D4037', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5 },
-  markerIcon: { fontSize: 20 },
+  // Marker card styles - horizontal layout with large icon
+  markerCard: {
+    alignItems: 'center',
+    padding: 8,
+  },
+  cardContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 3,
+    elevation: 3,
+    minWidth: 140,
+    maxWidth: 220,
+  },
+  cardContentSelected: {
+    borderWidth: 2,
+    borderColor: '#5D4037',
+    transform: [{ scale: 1.05 }],
+  },
+  markerIcon: {
+    marginRight: 8,
+  },
+  infoContainer: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  restroomName: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#222222',
+    marginBottom: 2,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  markerRating: {
+    fontSize: 10,
+    fontWeight: '500',
+    color: '#222222',
+  },
+  dot: {
+    fontSize: 10,
+    color: '#999999',
+    marginHorizontal: 3,
+  },
+  markerDistance: {
+    fontSize: 10,
+    color: '#717171',
+  },
+  newBadge: {
+    backgroundColor: Colors.coral,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  newBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  cardPointer: {
+    width: 0,
+    height: 0,
+    backgroundColor: 'transparent',
+    borderStyle: 'solid',
+    borderLeftWidth: 6,
+    borderRightWidth: 6,
+    borderTopWidth: 8,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#FFFFFF',
+    marginTop: -1,
+  },
+  cardPointerSelected: {
+    borderTopColor: '#FFFFFF',
+  },
   detailSheet: { position: 'absolute', bottom: 0, left: 0, right: 0, height: DETAIL_SHEET_HEIGHT, backgroundColor: '#FFFFFF', borderTopLeftRadius: 16, borderTopRightRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 20, zIndex: 15 },
   detailHandleContainer: { paddingTop: 8, paddingBottom: 8, alignItems: 'center', zIndex: 10 },
   handle: { width: 32, height: 4, backgroundColor: '#DDDDDD', borderRadius: 2 },
@@ -1013,7 +1128,7 @@ const styles = StyleSheet.create({
   detailTitle: { fontSize: 26, fontWeight: '600', color: '#222222', marginBottom: 8, letterSpacing: -0.5 },
   detailRatingRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   starsContainer: { flexDirection: 'row', alignItems: 'center', marginRight: 8 },
-  starFilled: { fontSize: 14, color: '#FF385C', marginRight: 1 },
+  starFilled: { fontSize: 14, color: Colors.coral, marginRight: 1 },
   starHalf: { fontSize: 14, color: '#FF385C', marginRight: 1 },
   starEmpty: { fontSize: 14, color: '#DDDDDD', marginRight: 1 },
   ratingNumber: { fontSize: 14, fontWeight: '600', color: '#222222', marginLeft: 6 },
@@ -1024,16 +1139,16 @@ const styles = StyleSheet.create({
   section: { paddingHorizontal: 24 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   sectionTitle: { fontSize: 22, fontWeight: '600', color: '#222222', marginBottom: 16 },
-  cleanlinessLabel: { fontSize: 14, fontWeight: '600', color: '#008489' },
+  cleanlinessLabel: { fontSize: 14, fontWeight: '600', color: Colors.coral },
   cleanlinessBar: { flexDirection: 'row', gap: 4, height: 6 },
-  cleanlinessSegment: { flex: 1, backgroundColor: '#EBEBEB', borderRadius: 3 },
-  cleanlinessActive: { backgroundColor: '#008489' },
+  cleanlinessSegment: { flex: 1, backgroundColor: Colors.grayLight, borderRadius: 3 },
+  cleanlinessActive: { backgroundColor: Colors.coral },
   amenitiesGrid: { gap: 16 },
   amenityItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
   amenityIcon: { fontSize: 20, width: 32 },
   amenityText: { fontSize: 16, color: '#222222', marginLeft: 8 },
   writeReviewButtonFull: {
-    backgroundColor: '#8B7355',
+    backgroundColor: Colors.coral,
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
@@ -1071,6 +1186,6 @@ const styles = StyleSheet.create({
   priceSection: { flex: 1 },
   priceLabel: { fontSize: 16, fontWeight: '600', color: '#222222' },
   priceSubtext: { fontSize: 14, color: '#717171' },
-  directionsButton: { backgroundColor: '#FF385C', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 8 },
+  directionsButton: { backgroundColor: Colors.coral, paddingHorizontal: 24, paddingVertical: 14, borderRadius: 8 },
   directionsButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
 });

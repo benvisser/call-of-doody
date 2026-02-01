@@ -20,6 +20,7 @@ import {
   Button,
 } from 'react-native';
 import { submitReview } from '../services/reviewService';
+import { Colors } from '../constants/colors';
 import {
   RATING_CATEGORIES,
   getCategoryLabel,
@@ -517,7 +518,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#DDDDDD',
   },
   progressDotFilled: {
-    backgroundColor: '#8B7355',
+    backgroundColor: Colors.coral,
   },
   divider: {
     height: 1,
@@ -562,10 +563,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   starFilled: {
-    color: '#8B7355',
+    color: Colors.coral,
   },
   starEmpty: {
-    color: '#DDDDDD',
+    color: Colors.grayLight,
   },
   ratingLabel: {
     fontSize: 16,
@@ -630,13 +631,13 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
   },
   submitButton: {
-    backgroundColor: '#8B7355',
+    backgroundColor: Colors.coral,
     paddingVertical: 18,
     borderRadius: 12,
     alignItems: 'center',
   },
   submitButtonDisabled: {
-    backgroundColor: '#CCCCCC',
+    backgroundColor: Colors.grayLight,
   },
   submitButtonContent: {
     flexDirection: 'row',

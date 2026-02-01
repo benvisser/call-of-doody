@@ -24,6 +24,7 @@ import { addRestroom, isAutoApproveEnabled } from '../services/restroomService';
 import { uploadRestroomImage, generateRestroomId } from '../utils/imageUpload';
 import { checkFirebaseStatus } from '../config/firebase';
 import { searchPlaces, getPlaceDetails } from '../services/placesService';
+import { Colors } from '../constants/colors';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -1160,7 +1161,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
   },
   submitButton: {
-    backgroundColor: '#8B7355',
+    backgroundColor: Colors.coral,
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',

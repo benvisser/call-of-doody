@@ -9,6 +9,7 @@ import {
   ScrollView,
   Dimensions,
 } from 'react-native';
+import { Colors } from '../constants/colors';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -365,8 +366,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   pillSelected: {
-    backgroundColor: '#5D4037',
-    borderColor: '#5D4037',
+    backgroundColor: Colors.coral,
+    borderColor: Colors.coral,
   },
   pillText: {
     fontSize: 14,
@@ -407,8 +408,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   amenityPillSelected: {
-    borderColor: '#5D4037',
-    backgroundColor: '#FAF7F5',
+    borderColor: Colors.coral,
+    backgroundColor: Colors.coralLight,
   },
   amenityIcon: {
     fontSize: 20,
@@ -426,7 +427,7 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: '#5D4037',
+    backgroundColor: Colors.coral,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -467,7 +468,7 @@ const styles = StyleSheet.create({
   showButton: {
     flex: 1,
     marginLeft: 16,
-    backgroundColor: '#5D4037',
+    backgroundColor: Colors.coral,
     paddingVertical: 14,
     borderRadius: 8,
     alignItems: 'center',
