@@ -31,6 +31,8 @@ import { formatDistance, addDistanceToRestrooms } from '../utils/distance';
 import { formatReviewDate, getInitials, getCategoryLabel } from '../utils/reviewHelpers';
 import { fetchReviews } from '../services/reviewService';
 import { Colors } from '../constants/colors';
+import { isFavorite, toggleFavorite } from '../utils/favoritesStorage';
+import { useRoute } from '@react-navigation/native';
 import Constants from 'expo-constants';
 
 // Debug: Check if Google Maps API key is configured (helps diagnose TestFlight issues)
@@ -51,6 +53,7 @@ const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const DETAIL_SHEET_HEIGHT = SCREEN_HEIGHT * 0.75;
 
 export default function MapScreen() {
+  const route = useRoute();
   const [location, setLocation] = useState({
     latitude: 34.9943,
     longitude: -81.2423,
@@ -75,9 +78,11 @@ export default function MapScreen() {
   const [mapError, setMapError] = useState(null);
   const [reviews, setReviews] = useState([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
+  const [isFavorited, setIsFavorited] = useState(false);
 
   const mapRef = useRef(null);
   const detailPanY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+  const heartScale = useRef(new Animated.Value(1)).current;
   const [scrollEnabled, setScrollEnabled] = useState(true);
   const searchDebounceRef = useRef(null);
 
@@ -112,6 +117,7 @@ export default function MapScreen() {
     setShowDetail(true);
     setReviews([]);
     setReviewsLoading(true);
+    setIsFavorited(false);
     detailPanY.setValue(SCREEN_HEIGHT);
     Animated.spring(detailPanY, {
       toValue: 0,
@@ -119,6 +125,14 @@ export default function MapScreen() {
       tension: 50,
       friction: 9,
     }).start();
+
+    // Check if restroom is favorited
+    try {
+      const favorited = await isFavorite(restroom.id);
+      setIsFavorited(favorited);
+    } catch (error) {
+      console.error('[MapScreen] Error checking favorite status:', error);
+    }
 
     // Fetch reviews for this restroom
     try {
@@ -140,12 +154,70 @@ export default function MapScreen() {
       setShowDetail(false);
       setSelectedRestroom(null);
       setReviews([]);
+      setIsFavorited(false);
     });
+  };
+
+  const handleToggleFavorite = async () => {
+    if (!selectedRestroom) return;
+    try {
+      const newStatus = await toggleFavorite(selectedRestroom.id);
+      setIsFavorited(newStatus);
+
+      // Heartbeat animation when favoriting
+      if (newStatus) {
+        Animated.sequence([
+          Animated.timing(heartScale, {
+            toValue: 1.3,
+            duration: 100,
+            useNativeDriver: true,
+          }),
+          Animated.timing(heartScale, {
+            toValue: 0.9,
+            duration: 100,
+            useNativeDriver: true,
+          }),
+          Animated.timing(heartScale, {
+            toValue: 1.15,
+            duration: 100,
+            useNativeDriver: true,
+          }),
+          Animated.timing(heartScale, {
+            toValue: 1,
+            duration: 100,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      }
+    } catch (error) {
+      console.error('[MapScreen] Error toggling favorite:', error);
+    }
   };
 
   useEffect(() => {
     getCurrentLocation();
   }, []);
+
+  // Handle navigation from FavoritesScreen with selectedRestroomId
+  useEffect(() => {
+    const selectedId = route.params?.selectedRestroomId;
+    if (selectedId && restrooms.length > 0) {
+      const restroom = restrooms.find(r => r.id === selectedId);
+      if (restroom) {
+        // Center map on the restroom
+        if (mapRef.current) {
+          mapRef.current.animateToRegion({
+            latitude: restroom.latitude,
+            longitude: restroom.longitude,
+            latitudeDelta: 0.02,
+            longitudeDelta: 0.02,
+          }, 500);
+        }
+        // Open the detail panel
+        setTimeout(() => openDetail(restroom), 600);
+      }
+    }
+  }, [route.params?.selectedRestroomId, restrooms]);
 
   // Subscribe to restrooms from Firestore (or mock data as fallback)
   useEffect(() => {
@@ -638,6 +710,19 @@ export default function MapScreen() {
                 source={{ uri: selectedRestroom.imageUrl || 'https://via.placeholder.com/400x300/F5F5F5/999?text=No+Image' }}
                 style={styles.detailImage}
               />
+              <TouchableOpacity
+                style={styles.favoriteButton}
+                onPress={handleToggleFavorite}
+                activeOpacity={0.8}
+              >
+                <Animated.View style={{ transform: [{ scale: heartScale }] }}>
+                  <MaterialIcons
+                    name={isFavorited ? 'favorite' : 'favorite-border'}
+                    size={24}
+                    color={isFavorited ? '#FF385C' : '#FFFFFF'}
+                  />
+                </Animated.View>
+              </TouchableOpacity>
             </View>
 
             <View style={styles.detailContent}>
@@ -1121,8 +1206,19 @@ const styles = StyleSheet.create({
   detailHandleContainer: { paddingTop: 8, paddingBottom: 8, alignItems: 'center', zIndex: 10 },
   handle: { width: 32, height: 4, backgroundColor: '#DDDDDD', borderRadius: 2 },
   detailScroll: { flex: 1 },
-  imageContainer: { paddingTop: 20, paddingHorizontal: 20 },
+  imageContainer: { paddingTop: 20, paddingHorizontal: 20, position: 'relative' },
   detailImage: { width: '100%', height: 260, backgroundColor: '#F5F5F5', borderRadius: 20 },
+  favoriteButton: {
+    position: 'absolute',
+    top: 32,
+    right: 32,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   detailContent: { flex: 1 },
   detailHeader: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 16 },
   detailTitle: { fontSize: 26, fontWeight: '600', color: '#222222', marginBottom: 8, letterSpacing: -0.5 },
