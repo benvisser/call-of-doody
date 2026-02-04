@@ -53,7 +53,8 @@ export default {
     },
     plugins: [
       "@react-native-firebase/app",
-      "@react-native-firebase/auth"
+      "@react-native-firebase/auth",
+      "./plugins/withModularHeaders"
     ],
     extra: {
       eas: {
