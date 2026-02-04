@@ -18,6 +18,7 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.benvisser.callofdoody",
+      googleServicesFile: "./GoogleService-Info.plist",
       config: {
         usesNonExemptEncryption: false,
         // Google Maps API key for iOS (required for production builds)
@@ -50,6 +51,10 @@ export default {
     web: {
       favicon: "./assets/favicon.png"
     },
+    plugins: [
+      "@react-native-firebase/app",
+      "@react-native-firebase/auth"
+    ],
     extra: {
       eas: {
         projectId: "aa7d7d6f-1b44-4df3-a6d3-accf44da9811"
