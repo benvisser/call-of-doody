@@ -13,10 +13,7 @@ import {
   Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { FirebaseRecaptchaVerifierModal } from 'expo-firebase-recaptcha';
 import {
-  PhoneAuthProvider,
-  signInWithCredential,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
 } from 'firebase/auth';
@@ -25,56 +22,25 @@ import { Colors } from '../../constants/colors';
 
 const AUTH_MODES = {
   SELECT: 'select',
-  PHONE: 'phone',
   EMAIL: 'email',
-  VERIFY: 'verify',
-};
-
-// Format phone number as user types
-const formatPhoneNumber = (text) => {
-  const cleaned = text.replace(/\D/g, '');
-  const match = cleaned.match(/^(\d{0,3})(\d{0,3})(\d{0,4})$/);
-  if (match) {
-    const parts = [match[1], match[2], match[3]].filter(Boolean);
-    if (parts.length === 0) return '';
-    if (parts.length === 1) return parts[0];
-    if (parts.length === 2) return `(${parts[0]}) ${parts[1]}`;
-    return `(${parts[0]}) ${parts[1]}-${parts[2]}`;
-  }
-  return text;
-};
-
-// Extract raw digits from formatted phone
-const getRawPhoneNumber = (formatted) => {
-  return formatted.replace(/\D/g, '');
 };
 
 export default function AuthScreen({ navigation, route }) {
   const { returnTo, feature } = route.params || {};
 
   const [mode, setMode] = useState(AUTH_MODES.SELECT);
-  const [phoneNumber, setPhoneNumber] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [verificationCode, setVerificationCode] = useState('');
-  const [verificationId, setVerificationId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  const recaptchaVerifier = useRef(null);
-  const phoneInputRef = useRef(null);
   const emailInputRef = useRef(null);
-  const codeInputRef = useRef(null);
 
   // Auto-focus input when mode changes
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (mode === AUTH_MODES.PHONE && phoneInputRef.current) {
-        phoneInputRef.current.focus();
-      } else if (mode === AUTH_MODES.EMAIL && emailInputRef.current) {
+      if (mode === AUTH_MODES.EMAIL && emailInputRef.current) {
         emailInputRef.current.focus();
-      } else if (mode === AUTH_MODES.VERIFY && codeInputRef.current) {
-        codeInputRef.current.focus();
       }
     }, 100);
     return () => clearTimeout(timer);
@@ -82,63 +48,6 @@ export default function AuthScreen({ navigation, route }) {
 
   const handleClose = () => {
     navigation.goBack();
-  };
-
-  const handlePhoneSubmit = async () => {
-    const rawPhone = getRawPhoneNumber(phoneNumber);
-    if (rawPhone.length !== 10) {
-      Alert.alert('Invalid Phone', 'Please enter a valid 10-digit phone number');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const phoneProvider = new PhoneAuthProvider(auth);
-      const fullPhoneNumber = `+1${rawPhone}`;
-
-      const verificationId = await phoneProvider.verifyPhoneNumber(
-        fullPhoneNumber,
-        recaptchaVerifier.current
-      );
-
-      setVerificationId(verificationId);
-      setMode(AUTH_MODES.VERIFY);
-    } catch (error) {
-      console.error('[Auth] Phone verification error:', error);
-      let message = 'Unable to send verification code. Please try again.';
-      if (error.code === 'auth/too-many-requests') {
-        message = 'Too many attempts. Please try again later.';
-      } else if (error.code === 'auth/invalid-phone-number') {
-        message = 'Invalid phone number format.';
-      }
-      Alert.alert('Verification Failed', message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVerifyCode = async () => {
-    if (verificationCode.length !== 6) {
-      Alert.alert('Invalid Code', 'Please enter the 6-digit code');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const credential = PhoneAuthProvider.credential(verificationId, verificationCode);
-      await signInWithCredential(auth, credential);
-      // Auth state listener in AuthContext will handle the rest
-      navigation.goBack();
-    } catch (error) {
-      console.error('[Auth] Code verification error:', error);
-      let message = 'Invalid verification code. Please try again.';
-      if (error.code === 'auth/code-expired') {
-        message = 'Code has expired. Please request a new one.';
-      }
-      Alert.alert('Verification Failed', message);
-    } finally {
-      setLoading(false);
-    }
   };
 
   const handleEmailSubmit = async () => {
@@ -186,11 +95,6 @@ export default function AuthScreen({ navigation, route }) {
     }
   };
 
-  const handleResendCode = async () => {
-    setVerificationCode('');
-    setMode(AUTH_MODES.PHONE);
-  };
-
   const renderHeader = () => (
     <View style={styles.header}>
       <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
@@ -198,9 +102,7 @@ export default function AuthScreen({ navigation, route }) {
       </TouchableOpacity>
       <Text style={styles.headerTitle}>
         {mode === AUTH_MODES.SELECT && 'Log in or sign up'}
-        {mode === AUTH_MODES.PHONE && 'Enter your phone number'}
         {mode === AUTH_MODES.EMAIL && 'Continue with email'}
-        {mode === AUTH_MODES.VERIFY && 'Enter verification code'}
       </Text>
       <View style={styles.headerSpacer} />
     </View>
@@ -212,16 +114,6 @@ export default function AuthScreen({ navigation, route }) {
       <Text style={styles.subtitleText}>
         Sign in to save favorites, write reviews, and add new restrooms
       </Text>
-
-      <TouchableOpacity
-        style={styles.authMethodButton}
-        onPress={() => setMode(AUTH_MODES.PHONE)}
-        activeOpacity={0.7}
-      >
-        <MaterialIcons name="phone" size={22} color="#111827" style={styles.methodIcon} />
-        <Text style={styles.authMethodText}>Continue with phone</Text>
-        <MaterialIcons name="chevron-right" size={24} color="#9CA3AF" />
-      </TouchableOpacity>
 
       <TouchableOpacity
         style={styles.authMethodButton}
@@ -250,55 +142,6 @@ export default function AuthScreen({ navigation, route }) {
       <Text style={styles.termsText}>
         By continuing, you agree to our Terms of Service and Privacy Policy
       </Text>
-    </View>
-  );
-
-  const renderPhoneInput = () => (
-    <View style={styles.content}>
-      <TouchableOpacity
-        style={styles.backButton}
-        onPress={() => setMode(AUTH_MODES.SELECT)}
-      >
-        <MaterialIcons name="arrow-back" size={24} color="#111827" />
-      </TouchableOpacity>
-
-      <Text style={styles.inputLabel}>Phone number</Text>
-      <Text style={styles.inputHint}>
-        We'll send you a verification code
-      </Text>
-
-      <View style={styles.phoneInputContainer}>
-        <View style={styles.countryCode}>
-          <Text style={styles.countryCodeText}>+1</Text>
-        </View>
-        <TextInput
-          ref={phoneInputRef}
-          style={styles.phoneInput}
-          value={phoneNumber}
-          onChangeText={(text) => setPhoneNumber(formatPhoneNumber(text))}
-          placeholder="(555) 555-5555"
-          placeholderTextColor="#9CA3AF"
-          keyboardType="phone-pad"
-          maxLength={14}
-          editable={!loading}
-        />
-      </View>
-
-      <TouchableOpacity
-        style={[
-          styles.continueButton,
-          getRawPhoneNumber(phoneNumber).length !== 10 && styles.continueButtonDisabled
-        ]}
-        onPress={handlePhoneSubmit}
-        disabled={getRawPhoneNumber(phoneNumber).length !== 10 || loading}
-        activeOpacity={0.8}
-      >
-        {loading ? (
-          <ActivityIndicator color="#FFFFFF" />
-        ) : (
-          <Text style={styles.continueButtonText}>Continue</Text>
-        )}
-      </TouchableOpacity>
     </View>
   );
 
@@ -372,66 +215,8 @@ export default function AuthScreen({ navigation, route }) {
     </View>
   );
 
-  const renderVerification = () => (
-    <View style={styles.content}>
-      <TouchableOpacity
-        style={styles.backButton}
-        onPress={() => setMode(AUTH_MODES.PHONE)}
-      >
-        <MaterialIcons name="arrow-back" size={24} color="#111827" />
-      </TouchableOpacity>
-
-      <Text style={styles.inputLabel}>Verification code</Text>
-      <Text style={styles.inputHint}>
-        Enter the 6-digit code sent to {phoneNumber}
-      </Text>
-
-      <TextInput
-        ref={codeInputRef}
-        style={styles.codeInput}
-        value={verificationCode}
-        onChangeText={(text) => setVerificationCode(text.replace(/\D/g, '').slice(0, 6))}
-        placeholder="000000"
-        placeholderTextColor="#9CA3AF"
-        keyboardType="number-pad"
-        maxLength={6}
-        editable={!loading}
-      />
-
-      <TouchableOpacity
-        style={[
-          styles.continueButton,
-          verificationCode.length !== 6 && styles.continueButtonDisabled
-        ]}
-        onPress={handleVerifyCode}
-        disabled={verificationCode.length !== 6 || loading}
-        activeOpacity={0.8}
-      >
-        {loading ? (
-          <ActivityIndicator color="#FFFFFF" />
-        ) : (
-          <Text style={styles.continueButtonText}>Verify</Text>
-        )}
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        style={styles.resendButton}
-        onPress={handleResendCode}
-        disabled={loading}
-      >
-        <Text style={styles.resendButtonText}>Didn't receive a code? Resend</Text>
-      </TouchableOpacity>
-    </View>
-  );
-
   return (
     <SafeAreaView style={styles.container}>
-      <FirebaseRecaptchaVerifierModal
-        ref={recaptchaVerifier}
-        firebaseConfig={auth?.app?.options}
-        attemptInvisibleVerification={true}
-      />
-
       <KeyboardAvoidingView
         style={styles.keyboardView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -445,9 +230,7 @@ export default function AuthScreen({ navigation, route }) {
           showsVerticalScrollIndicator={false}
         >
           {mode === AUTH_MODES.SELECT && renderSelectMode()}
-          {mode === AUTH_MODES.PHONE && renderPhoneInput()}
           {mode === AUTH_MODES.EMAIL && renderEmailInput()}
-          {mode === AUTH_MODES.VERIFY && renderVerification()}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -585,41 +368,6 @@ const styles = StyleSheet.create({
     color: '#111827',
     marginBottom: 8,
   },
-  inputHint: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginBottom: 20,
-  },
-
-  // Phone Input
-  phoneInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  countryCode: {
-    backgroundColor: '#F3F4F6',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    marginRight: 12,
-  },
-  countryCodeText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#111827',
-  },
-  phoneInput: {
-    flex: 1,
-    backgroundColor: '#F9FAFB',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    fontSize: 16,
-    color: '#111827',
-  },
 
   // Text Input
   textInput: {
@@ -660,22 +408,6 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
 
-  // Verification Code Input
-  codeInput: {
-    backgroundColor: '#F9FAFB',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    fontSize: 24,
-    fontWeight: '600',
-    color: '#111827',
-    textAlign: 'center',
-    letterSpacing: 8,
-    marginBottom: 24,
-  },
-
   // Continue Button
   continueButton: {
     backgroundColor: Colors.coral,
@@ -692,17 +424,5 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
-  },
-
-  // Resend Button
-  resendButton: {
-    alignItems: 'center',
-    paddingVertical: 16,
-    marginTop: 8,
-  },
-  resendButtonText: {
-    fontSize: 14,
-    color: Colors.coral,
-    fontWeight: '500',
   },
 });
