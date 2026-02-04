@@ -54,7 +54,14 @@ export default {
     plugins: [
       "@react-native-firebase/app",
       "@react-native-firebase/auth",
-      "./plugins/withModularHeaders"
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
+        }
+      ]
     ],
     extra: {
       eas: {
