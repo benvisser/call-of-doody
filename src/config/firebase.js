@@ -1,7 +1,7 @@
 import { initializeApp, getApps } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
-import { initializeAuth, getReactNativePersistence } from 'firebase/auth';
+import { initializeAuth, getReactNativePersistence, getAuth } from 'firebase/auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Firebase configuration from environment variables
@@ -60,9 +60,19 @@ try {
   db = getFirestore(app);
   storage = getStorage(app);
   // Initialize auth with React Native persistence
-  auth = initializeAuth(app, {
-    persistence: getReactNativePersistence(AsyncStorage),
-  });
+  try {
+    auth = initializeAuth(app, {
+      persistence: getReactNativePersistence(AsyncStorage),
+    });
+  } catch (authError) {
+    // initializeAuth throws if called more than once (e.g., hot reload)
+    // Fall back to getAuth which returns the existing instance
+    if (authError.code === 'auth/already-initialized') {
+      auth = getAuth(app);
+    } else {
+      throw authError;
+    }
+  }
   console.log('[Firebase] Initialized successfully for project:', firebaseConfig.projectId);
 } catch (error) {
   initError = error;

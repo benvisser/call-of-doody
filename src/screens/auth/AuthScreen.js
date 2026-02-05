@@ -13,12 +13,14 @@ import {
   Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import auth from '@react-native-firebase/auth';
 import {
+  PhoneAuthProvider,
+  signInWithCredential,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
 } from 'firebase/auth';
-import { auth as webAuth } from '../../config/firebase';
+import { FirebaseRecaptchaVerifierModal } from 'expo-firebase-recaptcha';
+import app, { auth } from '../../config/firebase';
 import { Colors } from '../../constants/colors';
 
 const AUTH_MODES = {
@@ -55,13 +57,14 @@ export default function AuthScreen({ navigation, route }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [verificationCode, setVerificationCode] = useState('');
-  const [confirm, setConfirm] = useState(null);
+  const [verificationId, setVerificationId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const phoneInputRef = useRef(null);
   const emailInputRef = useRef(null);
   const codeInputRef = useRef(null);
+  const recaptchaVerifier = useRef(null);
 
   // Auto-focus input when mode changes
   useEffect(() => {
@@ -88,11 +91,20 @@ export default function AuthScreen({ navigation, route }) {
       return;
     }
 
+    if (!auth) {
+      Alert.alert('Error', 'Authentication service is not available. Please try email sign-in.');
+      return;
+    }
+
     setLoading(true);
     try {
       const fullPhoneNumber = `+1${rawPhone}`;
-      const confirmation = await auth().signInWithPhoneNumber(fullPhoneNumber);
-      setConfirm(confirmation);
+      const phoneProvider = new PhoneAuthProvider(auth);
+      const id = await phoneProvider.verifyPhoneNumber(
+        fullPhoneNumber,
+        recaptchaVerifier.current
+      );
+      setVerificationId(id);
       setMode(AUTH_MODES.VERIFY);
     } catch (error) {
       console.error('[Auth] Phone verification error:', error);
@@ -114,10 +126,16 @@ export default function AuthScreen({ navigation, route }) {
       return;
     }
 
+    if (!verificationId) {
+      Alert.alert('Error', 'No verification in progress. Please request a new code.');
+      return;
+    }
+
     setLoading(true);
     try {
-      await confirm.confirm(verificationCode);
-      // Auth state listener will handle the rest
+      const credential = PhoneAuthProvider.credential(verificationId, verificationCode);
+      await signInWithCredential(auth, credential);
+      // Auth state listener in AuthContext will handle navigation
       navigation.goBack();
     } catch (error) {
       console.error('[Auth] Code verification error:', error);
@@ -145,13 +163,13 @@ export default function AuthScreen({ navigation, route }) {
     setLoading(true);
     try {
       // Try to sign in first
-      await signInWithEmailAndPassword(webAuth, email.trim(), password);
+      await signInWithEmailAndPassword(auth, email.trim(), password);
       navigation.goBack();
     } catch (signInError) {
       if (signInError.code === 'auth/user-not-found') {
         // User doesn't exist, create account
         try {
-          await createUserWithEmailAndPassword(webAuth, email.trim(), password);
+          await createUserWithEmailAndPassword(auth, email.trim(), password);
           navigation.goBack();
         } catch (createError) {
           console.error('[Auth] Create account error:', createError);
@@ -178,7 +196,7 @@ export default function AuthScreen({ navigation, route }) {
 
   const handleResendCode = async () => {
     setVerificationCode('');
-    setConfirm(null);
+    setVerificationId(null);
     setMode(AUTH_MODES.PHONE);
   };
 
@@ -417,6 +435,11 @@ export default function AuthScreen({ navigation, route }) {
 
   return (
     <SafeAreaView style={styles.container}>
+      <FirebaseRecaptchaVerifierModal
+        ref={recaptchaVerifier}
+        firebaseConfig={app?.options}
+        attemptInvisibleVerification={true}
+      />
       <KeyboardAvoidingView
         style={styles.keyboardView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
