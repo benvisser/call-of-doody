@@ -32,7 +32,10 @@ import {
   calculateAverageFromRatings,
   hasAllRatings,
   countFilledRatings,
+  recalculateRestroomRatings,
 } from '../utils/reviewHelpers';
+import { AmenityConfirmation } from '../components/AmenityTagSelector';
+import { voteOnAmenity } from '../utils/amenityVoting';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const MAX_REVIEW_LENGTH = 500;
@@ -50,6 +53,8 @@ export default function WriteReviewScreen({ visible, onClose, restroom, onSucces
   });
   const [reviewText, setReviewText] = useState('');
   const [photos, setPhotos] = useState([]);
+  const [confirmedAmenities, setConfirmedAmenities] = useState([]);
+  const [deniedAmenities, setDeniedAmenities] = useState([]);
 
   // UI state
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -154,6 +159,8 @@ export default function WriteReviewScreen({ visible, onClose, restroom, onSucces
     });
     setReviewText('');
     setPhotos([]);
+    setConfirmedAmenities([]);
+    setDeniedAmenities([]);
     setUploadProgress('');
   };
 
@@ -284,6 +291,33 @@ export default function WriteReviewScreen({ visible, onClose, restroom, onSucces
       if (result.success) {
         console.log('[WriteReview] Review submitted successfully');
 
+        // Recalculate restroom ratings from all reviews
+        try {
+          console.log('[WriteReview] Recalculating restroom ratings...');
+          await recalculateRestroomRatings(restroom.id);
+          console.log('[WriteReview] Restroom ratings updated');
+        } catch (recalcError) {
+          console.warn('[WriteReview] Ratings recalculation error:', recalcError);
+          // Don't fail the review if recalculation fails
+        }
+
+        // Submit amenity votes if user confirmed/denied any
+        const hasAmenityVotes = confirmedAmenities.length > 0 || deniedAmenities.length > 0;
+        if (hasAmenityVotes && user?.uid) {
+          try {
+            console.log('[WriteReview] Submitting amenity votes...');
+            const votePromises = [
+              ...confirmedAmenities.map(id => voteOnAmenity(restroom.id, id, user.uid, 'confirm')),
+              ...deniedAmenities.map(id => voteOnAmenity(restroom.id, id, user.uid, 'deny')),
+            ];
+            await Promise.allSettled(votePromises);
+            console.log('[WriteReview] Amenity votes submitted');
+          } catch (voteError) {
+            console.warn('[WriteReview] Amenity vote error:', voteError);
+            // Don't fail the review if amenity votes fail
+          }
+        }
+
         Alert.alert(
           "Review posted! 💩",
           "Thanks for sharing your throne experience!",
@@ -328,6 +362,29 @@ export default function WriteReviewScreen({ visible, onClose, restroom, onSucces
 
   const setRating = (category, value) => {
     setRatings(prev => ({ ...prev, [category]: value }));
+  };
+
+  // Amenity confirmation handlers
+  const handleConfirmAmenity = (amenityId) => {
+    // Toggle off if already confirmed, otherwise set to confirmed
+    if (confirmedAmenities.includes(amenityId)) {
+      setConfirmedAmenities(prev => prev.filter(id => id !== amenityId));
+    } else {
+      setConfirmedAmenities(prev => [...prev, amenityId]);
+      // Remove from denied if it was there
+      setDeniedAmenities(prev => prev.filter(id => id !== amenityId));
+    }
+  };
+
+  const handleDenyAmenity = (amenityId) => {
+    // Toggle off if already denied, otherwise set to denied
+    if (deniedAmenities.includes(amenityId)) {
+      setDeniedAmenities(prev => prev.filter(id => id !== amenityId));
+    } else {
+      setDeniedAmenities(prev => [...prev, amenityId]);
+      // Remove from confirmed if it was there
+      setConfirmedAmenities(prev => prev.filter(id => id !== amenityId));
+    }
   };
 
   const renderStars = (category, value) => {
@@ -491,6 +548,22 @@ export default function WriteReviewScreen({ visible, onClose, restroom, onSucces
                       {photos.length} / 3 photos
                     </Text>
                   </View>
+
+                  {/* Amenity Confirmation - only show if restroom has amenities */}
+                  {restroom?.amenities && Object.keys(restroom.amenities).length > 0 && (
+                    <>
+                      <View style={styles.divider} />
+                      <View style={styles.amenitySection}>
+                        <AmenityConfirmation
+                          existingAmenities={restroom.amenities}
+                          confirmedAmenities={confirmedAmenities}
+                          deniedAmenities={deniedAmenities}
+                          onConfirm={handleConfirmAmenity}
+                          onDeny={handleDenyAmenity}
+                        />
+                      </View>
+                    </>
+                  )}
 
                   <View style={styles.divider} />
 
@@ -816,6 +889,11 @@ const styles = StyleSheet.create({
   },
   keyboardToolbarSpacer: {
     flex: 1,
+  },
+  // Amenity section styles
+  amenitySection: {
+    paddingHorizontal: 24,
+    paddingVertical: 20,
   },
   // Photo section styles
   photoSection: {

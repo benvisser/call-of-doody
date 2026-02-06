@@ -75,6 +75,6 @@ The search bar uses Google Places Autocomplete API with fallback to a hardcoded 
 
 ## Important Notes
 
-- Uses Google Maps provider (`PROVIDER_GOOGLE`) - requires API key for production
+- Uses Google Maps provider (`PROVIDER_GOOGLE`) on Android with custom styling; falls back to Apple Maps with `mutedStandard` map type on iOS (no native SDK config needed)
 - Custom map styling defined in `src/styles/mapStyle.js`
 - Default location is York, SC (34.9943, -81.2423)

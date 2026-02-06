@@ -12,6 +12,9 @@ import {
   Image,
   PanResponder,
 } from 'react-native';
+import { getAmenityById } from '../constants/amenities';
+import BathroomTypesDisplay from './BathroomTypesDisplay';
+import RatingsBreakdown from './RatingsBreakdown';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const MODAL_HEIGHT = SCREEN_HEIGHT * 0.85;
@@ -88,15 +91,11 @@ export default function RestroomBottomSheet({ visible, restroom, onClose }) {
     return stars;
   };
 
-  const amenityInfo = {
-    toilets: { icon: '🚽', label: 'Toilets' },
-    urinals: { icon: '🧍', label: 'Urinals' },
-    accessible: { icon: '♿️', label: 'Accessible' },
-    changing_table: { icon: '👶', label: 'Changing Table' },
-    family: { icon: '👨‍👩‍👧', label: 'Family Room' },
-    sinks: { icon: '💧', label: 'Sinks' },
-    paper_towels: { icon: '🧻', label: 'Paper Towels' },
-    hand_dryer: { icon: '💨', label: 'Hand Dryer' },
+  // Helper to get amenity IDs from restroom data (handles both old array and new object format)
+  const getAmenityIds = (amenities) => {
+    if (!amenities) return [];
+    if (Array.isArray(amenities)) return amenities;
+    return Object.keys(amenities);
   };
 
   return (
@@ -139,30 +138,42 @@ export default function RestroomBottomSheet({ visible, restroom, onClose }) {
                 <View style={styles.divider} />
 
                 <View style={styles.section}>
-                  <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>Cleanliness</Text>
-                    <Text style={styles.cleanlinessLabel}>
-                      {restroom.cleanliness === 5 ? 'Spotless ✨' : restroom.cleanliness === 4 ? 'Very Clean' : 'Clean'}
-                    </Text>
-                  </View>
-                  <View style={styles.cleanlinessBar}>
-                    {[1, 2, 3, 4, 5].map((level) => (
-                      <View key={level} style={[styles.cleanlinessSegment, level <= restroom.cleanliness && styles.cleanlinessActive]} />
-                    ))}
-                  </View>
+                  <Text style={styles.sectionTitle}>Ratings</Text>
+                  <RatingsBreakdown
+                    ratings={restroom.ratings || {
+                      cleanliness: restroom.cleanliness || 0,
+                      supplies: 0,
+                      accessibility: 0,
+                      waitTime: 0,
+                    }}
+                    reviewCount={restroom.reviewCount || restroom.reviews || 0}
+                    showOverallHeader={false}
+                  />
                 </View>
 
                 <View style={styles.divider} />
 
+                {/* Bathroom Type Section */}
+                {restroom.bathroomTypes && restroom.bathroomTypes.length > 0 && (
+                  <>
+                    <View style={styles.section}>
+                      <Text style={styles.sectionTitle}>Bathroom type</Text>
+                      <BathroomTypesDisplay bathroomTypes={restroom.bathroomTypes} />
+                    </View>
+                    <View style={styles.divider} />
+                  </>
+                )}
+
                 <View style={styles.section}>
                   <Text style={styles.sectionTitle}>What this place offers</Text>
-                  <View style={styles.amenitiesGrid}>
-                    {restroom.amenities.map((amenity, index) => {
-                      const info = amenityInfo[amenity] || { icon: '✓', label: amenity };
+                  <View style={styles.amenityTagGrid}>
+                    {getAmenityIds(restroom.amenities).map((amenityId) => {
+                      const amenity = getAmenityById(amenityId);
+                      if (!amenity) return null;
                       return (
-                        <View key={index} style={styles.amenityItem}>
-                          <Text style={styles.amenityIcon}>{info.icon}</Text>
-                          <Text style={styles.amenityText}>{info.label}</Text>
+                        <View key={amenityId} style={styles.amenityTag}>
+                          <Text style={styles.amenityTagEmoji}>{amenity.emoji}</Text>
+                          <Text style={styles.amenityTagText}>{amenity.name}</Text>
                         </View>
                       );
                     })}
@@ -256,6 +267,10 @@ const styles = StyleSheet.create({
   amenityItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
   amenityIcon: { fontSize: 20, width: 32 },
   amenityText: { fontSize: 16, color: '#222', marginLeft: 8 },
+  amenityTagGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  amenityTag: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: '#FAF7F5', borderWidth: 1, borderColor: '#E5E7EB' },
+  amenityTagEmoji: { fontSize: 14, marginRight: 6 },
+  amenityTagText: { fontSize: 13, fontWeight: '500', color: '#374151' },
   reviewItem: { marginBottom: 32 },
   reviewerInfo: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#222', justifyContent: 'center', alignItems: 'center', marginRight: 12 },

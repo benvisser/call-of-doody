@@ -25,44 +25,33 @@ import { uploadRestroomImage, generateRestroomId } from '../utils/imageUpload';
 import { checkFirebaseStatus } from '../config/firebase';
 import { searchPlaces, getPlaceDetails } from '../services/placesService';
 import { Colors } from '../constants/colors';
+import { AmenityTagSelector } from '../components/AmenityTagSelector';
+import { initializeRestroomAmenities } from '../utils/amenityVoting';
+import {
+  RATING_CATEGORIES,
+  getCategoryLabel,
+  calculateAverageFromRatings,
+  hasAllRatings,
+  countFilledRatings,
+} from '../utils/reviewHelpers';
+import { BATHROOM_TYPES } from '../constants/bathroomTypes';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-// Gender facility options
-const GENDER_OPTIONS = [
-  { key: 'mens', icon: '🚹', label: "Men's Room" },
-  { key: 'womens', icon: '🚺', label: "Women's Room" },
-  { key: 'unisex', icon: '🚻', label: 'Gender Neutral' },
-  { key: 'family', icon: '👨‍👩‍👧', label: 'Family Room' },
-];
-
-// Amenity options
-const AMENITY_OPTIONS = [
-  { key: 'accessible', icon: '♿️', label: 'Accessible' },
-  { key: 'changing_table', icon: '👶', label: 'Changing Table' },
-  { key: 'paper_towels', icon: '🧻', label: 'Paper Towels' },
-  { key: 'hand_dryer', icon: '💨', label: 'Hand Dryer' },
-  { key: 'soap', icon: '🧼', label: 'Soap Dispenser' },
-  { key: 'toilets', icon: '🚽', label: 'Multiple Stalls' },
-];
-
-// Cleanliness labels
-const CLEANLINESS_LABELS = [
-  'Disaster Zone 🤢',
-  'Needs Work 😬',
-  'Decent 😐',
-  'Clean 😊',
-  'Spotless ✨',
-];
 
 export default function AddRestroomScreen({ visible, onClose, initialLocation, onSuccess }) {
   // Form state
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
-  const [genderFacilities, setGenderFacilities] = useState([]);
+  const [bathroomTypes, setBathroomTypes] = useState([]);
   const [amenities, setAmenities] = useState([]);
-  const [cleanliness, setCleanliness] = useState(3);
+  const [ratings, setRatings] = useState({
+    cleanliness: 0,
+    supplies: 0,
+    accessibility: 0,
+    waitTime: 0,
+  });
   const [imageUri, setImageUri] = useState(null);
   const [location, setLocation] = useState(null);
 
@@ -135,15 +124,25 @@ export default function AddRestroomScreen({ visible, onClose, initialLocation, o
     setName('');
     setAddress('');
     setIsPrivate(false);
-    setGenderFacilities([]);
+    setBathroomTypes([]);
     setAmenities([]);
-    setCleanliness(3);
+    setRatings({
+      cleanliness: 0,
+      supplies: 0,
+      accessibility: 0,
+      waitTime: 0,
+    });
     setImageUri(null);
     setLocation(null);
     setErrors({});
     setShowAddressSearch(false);
     setAddressSearchQuery('');
     setAddressResults([]);
+  };
+
+  // Set a rating for a specific category
+  const setRating = (category, value) => {
+    setRatings(prev => ({ ...prev, [category]: value }));
   };
 
   const useCurrentLocation = async () => {
@@ -280,11 +279,11 @@ export default function AddRestroomScreen({ visible, onClose, initialLocation, o
     }
   };
 
-  const toggleGenderFacility = (key) => {
-    setGenderFacilities((prev) =>
-      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+  const toggleBathroomType = (typeId) => {
+    setBathroomTypes((prev) =>
+      prev.includes(typeId) ? prev.filter((id) => id !== typeId) : [...prev, typeId]
     );
-    setErrors((prev) => ({ ...prev, genderFacilities: null }));
+    setErrors((prev) => ({ ...prev, bathroomTypes: null }));
   };
 
   const toggleAmenity = (key) => {
@@ -302,8 +301,8 @@ export default function AddRestroomScreen({ visible, onClose, initialLocation, o
     if (!name.trim()) {
       newErrors.name = 'Please enter a name for this location';
     }
-    if (genderFacilities.length === 0) {
-      newErrors.genderFacilities = 'Please select at least one facility type';
+    if (bathroomTypes.length === 0) {
+      newErrors.bathroomTypes = 'Please select at least one bathroom type';
     }
 
     setErrors(newErrors);
@@ -327,7 +326,7 @@ export default function AddRestroomScreen({ visible, onClose, initialLocation, o
         address: address || 'not provided',
         location: location,
         amenities: amenities,
-        genderFacilities: genderFacilities,
+        bathroomTypes: bathroomTypes,
         hasImage: !!imageUri,
       });
 
@@ -380,22 +379,27 @@ export default function AddRestroomScreen({ visible, onClose, initialLocation, o
         throw new Error(`Invalid coordinates: lat=${location.latitude}, lng=${location.longitude}`);
       }
 
+      // Initialize amenities with submitter's vote
+      const amenitiesData = initializeRestroomAmenities(amenities);
+
+      // Calculate average rating from 4 categories
+      const averageRating = calculateAverageFromRatings(ratings);
+
       const restroomData = {
         name: name.trim(),
         address: address || 'Address not provided',
         latitude: lat,
         longitude: lng,
         isPrivate,
-        gender: genderFacilities.includes('unisex') ? 'unisex' :
-                (genderFacilities.includes('mens') && genderFacilities.includes('womens')) ? 'separate' :
-                genderFacilities[0] || 'unisex',
-        amenities: [
-          ...amenities,
-          ...(genderFacilities.includes('accessible') ? ['accessible'] : []),
-          ...(genderFacilities.includes('family') ? ['family'] : []),
-        ],
-        cleanliness,
-        rating: cleanliness, // Initial rating based on cleanliness
+        bathroomTypes: bathroomTypes, // New bathroom types array
+        // Legacy gender field for backwards compatibility
+        gender: bathroomTypes.includes('all_gender') ? 'unisex' :
+                (bathroomTypes.includes('mens') && bathroomTypes.includes('womens')) ? 'separate' :
+                bathroomTypes[0] || 'unisex',
+        ...amenitiesData, // adds amenities object and confirmedAmenities array
+        ratings, // Store all 4 category ratings
+        cleanliness: ratings.cleanliness, // Keep for backwards compatibility
+        rating: averageRating, // Overall rating is average of 4 categories
         reviews: 0,
         imageUrl,
       };
@@ -497,8 +501,9 @@ export default function AddRestroomScreen({ visible, onClose, initialLocation, o
                     <MapView
                       ref={miniMapRef}
                       style={styles.miniMap}
-                      provider={PROVIDER_GOOGLE}
-                      customMapStyle={customMapStyle}
+                      provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+                      customMapStyle={Platform.OS === 'android' ? customMapStyle : undefined}
+                      mapType={Platform.OS === 'ios' ? 'mutedStandard' : undefined}
                       initialRegion={{
                         ...location,
                         latitudeDelta: 0.005,
@@ -591,35 +596,30 @@ export default function AddRestroomScreen({ visible, onClose, initialLocation, o
 
               <View style={styles.divider} />
 
-              {/* Facilities Section */}
+              {/* Bathroom Types Section */}
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>What's in stock? *</Text>
+                <Text style={styles.sectionTitle}>Bathroom Types *</Text>
                 <Text style={styles.sectionSubtitle}>Select all that apply</Text>
 
-                <View style={styles.facilitiesGrid}>
-                  {GENDER_OPTIONS.map((option) => {
-                    const isSelected = genderFacilities.includes(option.key);
+                <View style={styles.tagGrid}>
+                  {BATHROOM_TYPES.map((type) => {
+                    const isSelected = bathroomTypes.includes(type.id);
                     return (
                       <TouchableOpacity
-                        key={option.key}
-                        style={[styles.facilityPill, isSelected && styles.facilityPillSelected]}
-                        onPress={() => toggleGenderFacility(option.key)}
+                        key={type.id}
+                        style={[styles.tag, isSelected && styles.tagSelected]}
+                        onPress={() => toggleBathroomType(type.id)}
                       >
-                        <Text style={styles.facilityIcon}>{option.icon}</Text>
-                        <Text style={[styles.facilityLabel, isSelected && styles.facilityLabelSelected]}>
-                          {option.label}
+                        <Text style={styles.tagEmoji}>{type.emoji}</Text>
+                        <Text style={[styles.tagText, isSelected && styles.tagTextSelected]}>
+                          {type.label}
                         </Text>
-                        {isSelected && (
-                          <View style={styles.checkmark}>
-                            <Text style={styles.checkmarkText}>✓</Text>
-                          </View>
-                        )}
                       </TouchableOpacity>
                     );
                   })}
                 </View>
-                {errors.genderFacilities && (
-                  <Text style={styles.errorText}>{errors.genderFacilities}</Text>
+                {errors.bathroomTypes && (
+                  <Text style={styles.errorText}>{errors.bathroomTypes}</Text>
                 )}
               </View>
 
@@ -627,31 +627,14 @@ export default function AddRestroomScreen({ visible, onClose, initialLocation, o
 
               {/* Amenities Section */}
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>The good stuff</Text>
-                <Text style={styles.sectionSubtitle}>What amenities are available?</Text>
+                <Text style={styles.sectionTitle}>Amenities</Text>
+                <Text style={styles.sectionSubtitle}>What does this restroom have?</Text>
 
-                <View style={styles.amenitiesGrid}>
-                  {AMENITY_OPTIONS.map((option) => {
-                    const isSelected = amenities.includes(option.key);
-                    return (
-                      <TouchableOpacity
-                        key={option.key}
-                        style={[styles.amenityPill, isSelected && styles.amenityPillSelected]}
-                        onPress={() => toggleAmenity(option.key)}
-                      >
-                        <Text style={styles.amenityIcon}>{option.icon}</Text>
-                        <Text style={[styles.amenityLabel, isSelected && styles.amenityLabelSelected]}>
-                          {option.label}
-                        </Text>
-                        {isSelected && (
-                          <View style={styles.checkmark}>
-                            <Text style={styles.checkmarkText}>✓</Text>
-                          </View>
-                        )}
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
+                <AmenityTagSelector
+                  selectedAmenities={amenities}
+                  onToggle={toggleAmenity}
+                  showCount={8}
+                />
               </View>
 
               <View style={styles.divider} />
@@ -695,29 +678,46 @@ export default function AddRestroomScreen({ visible, onClose, initialLocation, o
 
               <View style={styles.divider} />
 
-              {/* Cleanliness Section */}
+              {/* Rating Categories Section */}
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>First impressions? *</Text>
-                <Text style={styles.sectionSubtitle}>How clean was it when you visited?</Text>
+                <Text style={styles.sectionTitle}>Rate your experience</Text>
+                <Text style={styles.sectionSubtitle}>
+                  {countFilledRatings(ratings)} of 4 rated
+                </Text>
 
-                <View style={styles.cleanlinessContainer}>
-                  <View style={styles.starsRow}>
-                    {[1, 2, 3, 4, 5].map((star) => (
-                      <TouchableOpacity
-                        key={star}
-                        onPress={() => setCleanliness(star)}
-                        style={styles.starButton}
-                      >
-                        <Text style={[styles.star, star <= cleanliness && styles.starFilled]}>
-                          ★
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                  <Text style={styles.cleanlinessLabel}>
-                    {CLEANLINESS_LABELS[cleanliness - 1]}
-                  </Text>
-                </View>
+                {RATING_CATEGORIES.map((category) => {
+                  const value = ratings[category.key];
+                  const label = getCategoryLabel(category.key, value);
+
+                  return (
+                    <View key={category.key} style={styles.ratingCategory}>
+                      <View style={styles.ratingHeader}>
+                        <Text style={styles.ratingIcon}>{category.icon}</Text>
+                        <Text style={styles.ratingTitle}>{category.title}</Text>
+                        {value > 0 && <Text style={styles.ratingCheckmark}>✓</Text>}
+                      </View>
+                      <View style={styles.starsRow}>
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <TouchableOpacity
+                            key={star}
+                            onPress={() => setRating(category.key, star)}
+                            style={styles.starButton}
+                          >
+                            <Text style={[styles.star, star <= value && styles.starFilled]}>
+                              ★
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                      {value > 0 && (
+                        <Text style={styles.ratingLabel}>{label}</Text>
+                      )}
+                      {category.helperText && (
+                        <Text style={styles.ratingHelperText}>{category.helperText}</Text>
+                      )}
+                    </View>
+                  );
+                })}
               </View>
 
               <View style={{ height: 140 }} />
@@ -974,77 +974,37 @@ const styles = StyleSheet.create({
   accessPillSubtextSelected: {
     color: '#8B7355',
   },
-  // Facilities styles
-  facilitiesGrid: {
-    gap: 12,
+  // Tag styles (used for facilities and amenities)
+  tagGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
   },
-  facilityPill: {
+  tag: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#DDDDDD',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
     backgroundColor: '#FFFFFF',
   },
-  facilityPillSelected: {
+  tagSelected: {
     borderColor: '#5D4037',
     backgroundColor: '#FAF7F5',
   },
-  facilityIcon: {
-    fontSize: 20,
-    marginRight: 12,
-  },
-  facilityLabel: {
-    flex: 1,
-    fontSize: 15,
-    color: '#222222',
-  },
-  facilityLabelSelected: {
-    fontWeight: '500',
-  },
-  // Amenities styles
-  amenitiesGrid: {
-    gap: 12,
-  },
-  amenityPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#DDDDDD',
-    backgroundColor: '#FFFFFF',
-  },
-  amenityPillSelected: {
-    borderColor: '#5D4037',
-    backgroundColor: '#FAF7F5',
-  },
-  amenityIcon: {
-    fontSize: 20,
-    marginRight: 12,
-  },
-  amenityLabel: {
-    flex: 1,
-    fontSize: 15,
-    color: '#222222',
-  },
-  amenityLabelSelected: {
-    fontWeight: '500',
-  },
-  checkmark: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#5D4037',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkmarkText: {
-    color: '#FFFFFF',
+  tagEmoji: {
     fontSize: 14,
+    marginRight: 6,
+  },
+  tagText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#374151',
+  },
+  tagTextSelected: {
+    color: '#5D4037',
     fontWeight: '600',
   },
   // Photo styles
@@ -1118,30 +1078,58 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     fontWeight: '500',
   },
-  // Cleanliness styles
-  cleanlinessContainer: {
+  // Rating category styles
+  ratingCategory: {
+    marginBottom: 24,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  ratingHeader: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 16,
+    marginBottom: 12,
+  },
+  ratingIcon: {
+    fontSize: 20,
+    marginRight: 8,
+  },
+  ratingTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#222222',
+    flex: 1,
+  },
+  ratingCheckmark: {
+    fontSize: 16,
+    color: '#10B981',
+    fontWeight: '600',
   },
   starsRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
+    marginBottom: 8,
   },
   starButton: {
     padding: 4,
   },
   star: {
-    fontSize: 40,
+    fontSize: 32,
     color: '#DDDDDD',
   },
   starFilled: {
     color: '#FFB400',
   },
-  cleanlinessLabel: {
-    fontSize: 16,
+  ratingLabel: {
+    fontSize: 14,
     fontWeight: '500',
-    color: '#717171',
-    marginTop: 12,
+    color: Colors.coral,
+    marginTop: 4,
+  },
+  ratingHelperText: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginTop: 4,
   },
   // Bottom bar styles
   bottomBar: {

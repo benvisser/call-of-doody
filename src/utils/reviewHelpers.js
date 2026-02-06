@@ -3,6 +3,9 @@
  * Date formatting, rating labels, and other review-related helpers
  */
 
+import { doc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '../config/firebase';
+
 /**
  * Format a date as relative time (e.g., "2 days ago", "January 2025")
  * @param {Date} date - The date to format
@@ -215,4 +218,118 @@ export const countFilledRatings = (ratings) => {
     ratings.accessibility,
     ratings.waitTime,
   ].filter(r => r > 0).length;
+};
+
+/**
+ * Recalculate restroom ratings from all reviews
+ * Call this after a review is submitted or deleted
+ * @param {string} restroomId - The restroom ID
+ * @returns {Object} Updated ratings data
+ */
+export const recalculateRestroomRatings = async (restroomId) => {
+  try {
+    console.log('[recalculateRatings] Starting for restroom:', restroomId);
+
+    // Get all reviews for this restroom
+    const q = query(
+      collection(db, 'reviews'),
+      where('restroomId', '==', restroomId)
+    );
+
+    const snapshot = await getDocs(q);
+
+    if (snapshot.empty) {
+      console.log('[recalculateRatings] No reviews found, resetting ratings');
+      // No reviews, reset to 0
+      await updateDoc(doc(db, 'restrooms', restroomId), {
+        ratings: {
+          cleanliness: 0,
+          supplies: 0,
+          accessibility: 0,
+          waitTime: 0,
+        },
+        rating: 0,
+        reviewCount: 0,
+        updatedAt: new Date(),
+      });
+      return {
+        ratings: { cleanliness: 0, supplies: 0, accessibility: 0, waitTime: 0 },
+        rating: 0,
+        reviewCount: 0,
+      };
+    }
+
+    // Calculate averages from all reviews
+    let totalCleanliness = 0;
+    let totalSupplies = 0;
+    let totalAccessibility = 0;
+    let totalWaitTime = 0;
+    let cleanlinessCount = 0;
+    let suppliesCount = 0;
+    let accessibilityCount = 0;
+    let waitTimeCount = 0;
+
+    snapshot.forEach(docSnap => {
+      const review = docSnap.data();
+
+      // Handle both new format (ratings object) and old format (separate fields)
+      if (review.ratings) {
+        if (review.ratings.cleanliness > 0) {
+          totalCleanliness += review.ratings.cleanliness;
+          cleanlinessCount++;
+        }
+        if (review.ratings.supplies > 0) {
+          totalSupplies += review.ratings.supplies;
+          suppliesCount++;
+        }
+        if (review.ratings.accessibility > 0) {
+          totalAccessibility += review.ratings.accessibility;
+          accessibilityCount++;
+        }
+        if (review.ratings.waitTime > 0) {
+          totalWaitTime += review.ratings.waitTime;
+          waitTimeCount++;
+        }
+      } else if (review.cleanliness) {
+        // Old format - only had cleanliness
+        totalCleanliness += review.cleanliness;
+        cleanlinessCount++;
+      }
+    });
+
+    // Calculate averages (only for categories with data)
+    const avgCleanliness = cleanlinessCount > 0 ? totalCleanliness / cleanlinessCount : 0;
+    const avgSupplies = suppliesCount > 0 ? totalSupplies / suppliesCount : 0;
+    const avgAccessibility = accessibilityCount > 0 ? totalAccessibility / accessibilityCount : 0;
+    const avgWaitTime = waitTimeCount > 0 ? totalWaitTime / waitTimeCount : 0;
+
+    // Calculate overall rating (average of non-zero categories)
+    const validRatings = [avgCleanliness, avgSupplies, avgAccessibility, avgWaitTime].filter(r => r > 0);
+    const overallRating = validRatings.length > 0
+      ? validRatings.reduce((sum, r) => sum + r, 0) / validRatings.length
+      : 0;
+
+    const updatedData = {
+      ratings: {
+        cleanliness: Number(avgCleanliness.toFixed(2)),
+        supplies: Number(avgSupplies.toFixed(2)),
+        accessibility: Number(avgAccessibility.toFixed(2)),
+        waitTime: Number(avgWaitTime.toFixed(2)),
+      },
+      rating: Number(overallRating.toFixed(2)),
+      reviewCount: snapshot.size,
+      updatedAt: new Date(),
+    };
+
+    console.log('[recalculateRatings] Updating restroom with:', updatedData);
+
+    // Update restroom document
+    await updateDoc(doc(db, 'restrooms', restroomId), updatedData);
+
+    return updatedData;
+
+  } catch (error) {
+    console.error('[recalculateRatings] Error:', error);
+    throw error;
+  }
 };

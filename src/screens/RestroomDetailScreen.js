@@ -1,5 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { getAmenityById } from '../constants/amenities';
+import BathroomTypesDisplay from '../components/BathroomTypesDisplay';
 
 export default function RestroomDetailScreen({ route, navigation }) {
   const { restroom } = route.params;
@@ -18,23 +20,24 @@ export default function RestroomDetailScreen({ route, navigation }) {
     return stars.join('');
   };
 
-  const renderAmenities = () => {
-    const amenityIcons = {
-      toilets: '🚽',
-      urinals: '🚹',
-      accessible: '♿',
-      changing_table: '👶',
-      family: '👨‍👩‍👧‍👦',
-      sinks: '🚰',
-    };
+  // Helper to get amenity IDs from restroom data (handles both old array and new object format)
+  const getAmenityIds = (amenities) => {
+    if (!amenities) return [];
+    if (Array.isArray(amenities)) return amenities;
+    return Object.keys(amenities);
+  };
 
-    return restroom.amenities.map((amenity, index) => (
-      <View key={index} style={styles.amenityChip}>
-        <Text style={styles.amenityText}>
-          {amenityIcons[amenity] || '✓'} {amenity.replace('_', ' ')}
-        </Text>
-      </View>
-    ));
+  const renderAmenities = () => {
+    return getAmenityIds(restroom.amenities).map((amenityId) => {
+      const amenity = getAmenityById(amenityId);
+      if (!amenity) return null;
+      return (
+        <View key={amenityId} style={styles.amenityTag}>
+          <Text style={styles.amenityTagEmoji}>{amenity.emoji}</Text>
+          <Text style={styles.amenityTagText}>{amenity.name}</Text>
+        </View>
+      );
+    });
   };
 
   return (
@@ -79,12 +82,12 @@ export default function RestroomDetailScreen({ route, navigation }) {
         </View>
       </View>
 
-      <View style={styles.genderContainer}>
-        <Text style={styles.sectionTitle}>Facilities</Text>
-        <Text style={styles.genderText}>
-          {restroom.gender === 'unisex' ? '🚻 Unisex / All-Gender' : '🚹🚺 Separate Men\'s & Women\'s'}
-        </Text>
-      </View>
+      {restroom.bathroomTypes && restroom.bathroomTypes.length > 0 && (
+        <View style={styles.genderContainer}>
+          <Text style={styles.sectionTitle}>Bathroom type</Text>
+          <BathroomTypesDisplay bathroomTypes={restroom.bathroomTypes} />
+        </View>
+      )}
 
       <View style={styles.buttonContainer}>
         <TouchableOpacity style={styles.directionsButton}>
@@ -198,28 +201,31 @@ const styles = StyleSheet.create({
   amenitiesGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    gap: 8,
   },
-  amenityChip: {
-    backgroundColor: '#E3F2FD',
+  amenityTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 20,
-    marginRight: 8,
-    marginBottom: 8,
+    backgroundColor: '#FAF7F5',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
-  amenityText: {
+  amenityTagEmoji: {
     fontSize: 14,
-    color: '#1976D2',
+    marginRight: 6,
+  },
+  amenityTagText: {
+    fontSize: 13,
     fontWeight: '500',
+    color: '#374151',
   },
   genderContainer: {
     backgroundColor: 'white',
     padding: 20,
     marginTop: 10,
-  },
-  genderText: {
-    fontSize: 16,
-    color: '#666',
   },
   buttonContainer: {
     flexDirection: 'row',

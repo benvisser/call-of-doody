@@ -20,19 +20,24 @@ import {
 } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
+import * as Haptics from 'expo-haptics';
 import { MaterialIcons } from '@expo/vector-icons';
 import { customMapStyle } from '../styles/mapStyle';
 import { searchPlaces, getPlaceDetails } from '../services/placesService';
 import { subscribeToRestrooms, getCachedRestrooms } from '../services/restroomService';
-import FilterModal, { AMENITY_OPTIONS, CLEANLINESS_OPTIONS, DISTANCE_OPTIONS } from '../components/FilterModal';
+import FilterModal, { AMENITY_OPTIONS, CLEANLINESS_OPTIONS, DISTANCE_OPTIONS, BATHROOM_TYPES } from '../components/FilterModal';
+import BathroomTypesDisplay from '../components/BathroomTypesDisplay';
+import UrgentModeModal from '../components/UrgentModeModal';
 import AddRestroomScreen from './AddRestroomScreen';
 import WriteReviewScreen from './WriteReviewScreen';
 import PhotoGallery from '../components/PhotoGallery';
-import { formatDistance, addDistanceToRestrooms } from '../utils/distance';
+import { formatDistance, addDistanceToRestrooms, calculateDistance } from '../utils/distance';
 import { formatReviewDate, getInitials, getCategoryLabel } from '../utils/reviewHelpers';
 import { fetchReviews } from '../services/reviewService';
 import { Colors } from '../constants/colors';
 import { isFavorite, toggleFavorite } from '../utils/favoritesStorage';
+import { getAmenityById } from '../constants/amenities';
+import RatingsBreakdown from '../components/RatingsBreakdown';
 import { useRoute } from '@react-navigation/native';
 import Constants from 'expo-constants';
 
@@ -46,6 +51,7 @@ console.log('[MapScreen] Google Maps iOS API Key:', API_KEY_CONFIGURED
 const DEFAULT_FILTERS = {
   accessType: 'all',
   amenities: [],
+  bathroomTypes: [],
   cleanliness: 'any',
   distance: 'any',
 };
@@ -83,10 +89,13 @@ export default function MapScreen() {
   const [galleryVisible, setGalleryVisible] = useState(false);
   const [galleryPhotos, setGalleryPhotos] = useState([]);
   const [galleryIndex, setGalleryIndex] = useState(0);
+  const [urgentMode, setUrgentMode] = useState(false);
+  const [nearestRestrooms, setNearestRestrooms] = useState([]);
 
   const mapRef = useRef(null);
   const detailPanY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const heartScale = useRef(new Animated.Value(1)).current;
+  const urgentPulse = useRef(new Animated.Value(1)).current;
   const [scrollEnabled, setScrollEnabled] = useState(true);
   const searchDebounceRef = useRef(null);
 
@@ -345,6 +354,15 @@ export default function MapScreen() {
       );
     }
 
+    // Apply bathroom type filter
+    if (filters.bathroomTypes && filters.bathroomTypes.length > 0) {
+      result = result.filter((r) => {
+        // Check if restroom has any of the selected bathroom types
+        const restroomTypes = r.bathroomTypes || [];
+        return filters.bathroomTypes.some((t) => restroomTypes.includes(t));
+      });
+    }
+
     // Apply cleanliness filter
     const cleanlinessOption = CLEANLINESS_OPTIONS.find((o) => o.key === filters.cleanliness);
     if (cleanlinessOption && cleanlinessOption.min > 0) {
@@ -367,6 +385,7 @@ export default function MapScreen() {
     return (
       filters.accessType !== 'all' ||
       filters.amenities.length > 0 ||
+      (filters.bathroomTypes && filters.bathroomTypes.length > 0) ||
       filters.cleanliness !== 'any' ||
       filters.distance !== 'any'
     );
@@ -389,6 +408,15 @@ export default function MapScreen() {
       }
     });
 
+    if (filters.bathroomTypes) {
+      filters.bathroomTypes.forEach((typeId) => {
+        const type = BATHROOM_TYPES.find((t) => t.id === typeId);
+        if (type) {
+          chips.push({ key: `bathroomType-${typeId}`, typeId, label: type.label });
+        }
+      });
+    }
+
     if (filters.cleanliness !== 'any') {
       const option = CLEANLINESS_OPTIONS.find((o) => o.key === filters.cleanliness);
       chips.push({ key: 'cleanliness', label: `${option?.label} stars` });
@@ -410,6 +438,11 @@ export default function MapScreen() {
         ...prev,
         amenities: prev.amenities.filter((a) => a !== chip.amenityKey),
       }));
+    } else if (chip.key.startsWith('bathroomType-')) {
+      setFilters((prev) => ({
+        ...prev,
+        bathroomTypes: prev.bathroomTypes.filter((t) => t !== chip.typeId),
+      }));
     } else if (chip.key === 'cleanliness') {
       setFilters((prev) => ({ ...prev, cleanliness: 'any' }));
     } else if (chip.key === 'distance') {
@@ -420,6 +453,102 @@ export default function MapScreen() {
   const clearAllFilters = useCallback(() => {
     setFilters(DEFAULT_FILTERS);
   }, []);
+
+  // Urgent Mode: Find 3 nearest restrooms
+  const findNearestRestrooms = useCallback(() => {
+    // More intense haptic pattern for urgency
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    setTimeout(() => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    }, 100);
+
+    if (!userLocation) {
+      Alert.alert(
+        'Location Required',
+        'Please enable location services to use Urgent Mode',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open Settings', onPress: () => Linking.openSettings() },
+        ]
+      );
+      return;
+    }
+
+    if (!restrooms || restrooms.length === 0) {
+      Alert.alert(
+        'No Restrooms Available',
+        'No restrooms are currently loaded. Try zooming out or moving to a different area.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
+    // Calculate distances for all restrooms
+    const restroomsWithDistance = restrooms.map(restroom => ({
+      ...restroom,
+      distance: calculateDistance(
+        userLocation.latitude,
+        userLocation.longitude,
+        restroom.latitude,
+        restroom.longitude
+      ),
+    }));
+
+    // Sort by distance and take top 3
+    const nearest = restroomsWithDistance
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, 3);
+
+    if (nearest.length === 0) {
+      Alert.alert('No Restrooms', 'No restrooms found nearby. Try zooming out.');
+      return;
+    }
+
+    setNearestRestrooms(nearest);
+    setUrgentMode(true);
+  }, [userLocation, restrooms]);
+
+  // Open directions for urgent mode
+  const openUrgentDirections = useCallback((restroom) => {
+    // Strong haptic feedback on directions tap
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+
+    const url = Platform.select({
+      ios: `maps://app?daddr=${restroom.latitude},${restroom.longitude}`,
+      android: `google.navigation:q=${restroom.latitude},${restroom.longitude}`,
+    });
+
+    Linking.canOpenURL(url).then(supported => {
+      if (supported) {
+        Linking.openURL(url);
+      } else {
+        // Fallback to Google Maps web
+        const webUrl = `https://www.google.com/maps/dir/?api=1&destination=${restroom.latitude},${restroom.longitude}`;
+        Linking.openURL(webUrl);
+      }
+    });
+  }, []);
+
+  // Pulse animation for urgent button - faster and more dramatic
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(urgentPulse, {
+          toValue: 1.15,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+        Animated.timing(urgentPulse, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    pulse.start();
+
+    return () => pulse.stop();
+  }, [urgentPulse]);
 
   const openDirections = async (restroom) => {
     const { latitude, longitude, name } = restroom;
@@ -466,16 +595,15 @@ export default function MapScreen() {
     );
   };
 
-  const amenityInfo = {
-    toilets: { icon: '🚽', label: 'Toilets' },
-    urinals: { icon: '🧍', label: 'Urinals' },
-    accessible: { icon: '♿️', label: 'Accessible' },
-    changing_table: { icon: '👶', label: 'Changing Table' },
-    family: { icon: '👨‍👩‍👧', label: 'Family Room' },
-    sinks: { icon: '💧', label: 'Sinks' },
-    paper_towels: { icon: '🧻', label: 'Paper Towels' },
-    hand_dryer: { icon: '💨', label: 'Hand Dryer' },
+  // Helper to get amenity IDs from restroom data (handles both old array and new object format)
+  const getAmenityIds = (amenities) => {
+    if (!amenities) return [];
+    if (Array.isArray(amenities)) return amenities;
+    return Object.keys(amenities);
   };
+
+  // Check if restroom has a valid photo
+  const hasPhoto = selectedRestroom?.imageUrl && !selectedRestroom.imageUrl.includes('placeholder');
 
   if (loading) {
     return (
@@ -504,8 +632,9 @@ export default function MapScreen() {
       <MapView
         ref={mapRef}
         style={[styles.map, mapError && { display: 'none' }]}
-        provider={PROVIDER_GOOGLE}
-        customMapStyle={customMapStyle}
+        provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+        customMapStyle={Platform.OS === 'android' ? customMapStyle : undefined}
+        mapType={Platform.OS === 'ios' ? 'mutedStandard' : undefined}
         initialRegion={location}
         showsUserLocation={true}
         showsMyLocationButton={false}
@@ -684,6 +813,19 @@ export default function MapScreen() {
         </View>
       )}
 
+      {/* Urgent Mode Button */}
+      <Animated.View style={[styles.urgentButtonContainer, { transform: [{ scale: urgentPulse }] }]}>
+        <TouchableOpacity
+          style={styles.urgentButton}
+          onPress={findNearestRestrooms}
+          activeOpacity={0.9}
+        >
+          <View style={styles.urgentIconContainer}>
+            <MaterialIcons name="warning" size={24} color="#FFFFFF" />
+          </View>
+        </TouchableOpacity>
+      </Animated.View>
+
       {/* Add Restroom Button */}
       <TouchableOpacity
         style={styles.addButton}
@@ -731,29 +873,48 @@ export default function MapScreen() {
             scrollEnabled={scrollEnabled}
             bounces={true}
           >
-            <View style={styles.imageContainer}>
-              <Image
-                source={{ uri: selectedRestroom.imageUrl || 'https://via.placeholder.com/400x300/F5F5F5/999?text=No+Image' }}
-                style={styles.detailImage}
-              />
-              <TouchableOpacity
-                style={styles.favoriteButton}
-                onPress={handleToggleFavorite}
-                activeOpacity={0.8}
-              >
-                <Animated.View style={{ transform: [{ scale: heartScale }] }}>
-                  <MaterialIcons
-                    name={isFavorited ? 'favorite' : 'favorite-border'}
-                    size={24}
-                    color={isFavorited ? '#FF385C' : '#FFFFFF'}
-                  />
-                </Animated.View>
-              </TouchableOpacity>
-            </View>
+            {hasPhoto && (
+              <View style={styles.imageContainer}>
+                <Image
+                  source={{ uri: selectedRestroom.imageUrl }}
+                  style={styles.detailImage}
+                />
+                <TouchableOpacity
+                  style={styles.favoriteButton}
+                  onPress={handleToggleFavorite}
+                  activeOpacity={0.8}
+                >
+                  <Animated.View style={{ transform: [{ scale: heartScale }] }}>
+                    <MaterialIcons
+                      name={isFavorited ? 'favorite' : 'favorite-border'}
+                      size={24}
+                      color={isFavorited ? '#FF385C' : '#FFFFFF'}
+                    />
+                  </Animated.View>
+                </TouchableOpacity>
+              </View>
+            )}
 
             <View style={styles.detailContent}>
               <View style={styles.detailHeader}>
-                <Text style={styles.detailTitle}>{selectedRestroom.name}</Text>
+                <View style={styles.titleRow}>
+                  <Text style={[styles.detailTitle, !hasPhoto && styles.detailTitleNoPhoto]}>{selectedRestroom.name}</Text>
+                  {!hasPhoto && (
+                    <TouchableOpacity
+                      style={styles.favoriteButtonInline}
+                      onPress={handleToggleFavorite}
+                      activeOpacity={0.8}
+                    >
+                      <Animated.View style={{ transform: [{ scale: heartScale }] }}>
+                        <MaterialIcons
+                          name={isFavorited ? 'favorite' : 'favorite-border'}
+                          size={24}
+                          color={isFavorited ? '#FF385C' : '#9CA3AF'}
+                        />
+                      </Animated.View>
+                    </TouchableOpacity>
+                  )}
+                </View>
                 <View style={styles.detailRatingRow}>
                   <View style={styles.starsContainer}>
                     {renderStars(selectedRestroom.rating, true)}
@@ -771,38 +932,42 @@ export default function MapScreen() {
               <View style={styles.divider} />
 
               <View style={styles.section}>
-                <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Cleanliness</Text>
-                  <Text style={styles.cleanlinessLabel}>
-                    {selectedRestroom.cleanliness === 5 ? 'Spotless ✨' :
-                     selectedRestroom.cleanliness === 4 ? 'Very Clean' :
-                     selectedRestroom.cleanliness === 3 ? 'Clean' : 'Fair'}
-                  </Text>
-                </View>
-                <View style={styles.cleanlinessBar}>
-                  {[1, 2, 3, 4, 5].map((level) => (
-                    <View
-                      key={level}
-                      style={[
-                        styles.cleanlinessSegment,
-                        level <= selectedRestroom.cleanliness && styles.cleanlinessActive,
-                      ]}
-                    />
-                  ))}
-                </View>
+                <Text style={styles.sectionTitle}>Ratings</Text>
+                <RatingsBreakdown
+                  ratings={selectedRestroom.ratings || {
+                    cleanliness: selectedRestroom.cleanliness || 0,
+                    supplies: 0,
+                    accessibility: 0,
+                    waitTime: 0,
+                  }}
+                  reviewCount={selectedRestroom.reviewCount || selectedRestroom.reviews || 0}
+                  showOverallHeader={false}
+                />
               </View>
 
               <View style={styles.divider} />
 
+              {/* Bathroom Type Section */}
+              {selectedRestroom.bathroomTypes && selectedRestroom.bathroomTypes.length > 0 && (
+                <>
+                  <View style={styles.section}>
+                    <Text style={styles.sectionTitle}>Bathroom type</Text>
+                    <BathroomTypesDisplay bathroomTypes={selectedRestroom.bathroomTypes} />
+                  </View>
+                  <View style={styles.divider} />
+                </>
+              )}
+
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>What this place offers</Text>
-                <View style={styles.amenitiesGrid}>
-                  {selectedRestroom.amenities.map((amenity, index) => {
-                    const info = amenityInfo[amenity] || { icon: '✓', label: amenity };
+                <View style={styles.amenityTagGrid}>
+                  {getAmenityIds(selectedRestroom.amenities).map((amenityId) => {
+                    const amenity = getAmenityById(amenityId);
+                    if (!amenity) return null;
                     return (
-                      <View key={index} style={styles.amenityItem}>
-                        <Text style={styles.amenityIcon}>{info.icon}</Text>
-                        <Text style={styles.amenityText}>{info.label}</Text>
+                      <View key={amenityId} style={styles.amenityTag}>
+                        <Text style={styles.amenityTagEmoji}>{amenity.emoji}</Text>
+                        <Text style={styles.amenityTagText}>{amenity.name}</Text>
                       </View>
                     );
                   })}
@@ -980,6 +1145,14 @@ export default function MapScreen() {
         initialIndex={galleryIndex}
         onClose={() => setGalleryVisible(false)}
       />
+
+      {/* Urgent Mode Modal */}
+      <UrgentModeModal
+        visible={urgentMode}
+        onClose={() => setUrgentMode(false)}
+        restrooms={nearestRestrooms}
+        onDirections={openUrgentDirections}
+      />
     </View>
   );
 }
@@ -1141,6 +1314,33 @@ const styles = StyleSheet.create({
   },
   errorText: { flex: 1, color: '#991B1B', fontSize: 14 },
   errorDismiss: { color: '#991B1B', fontSize: 18, paddingLeft: 12 },
+  urgentButtonContainer: {
+    position: 'absolute',
+    bottom: Platform.OS === 'ios' ? 186 : 166,
+    right: 16,
+  },
+  urgentButton: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#EF4444',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  urgentIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: '#FEE2E2',
+  },
   addButton: {
     position: 'absolute',
     bottom: Platform.OS === 'ios' ? 117 : 97,
@@ -1275,7 +1475,10 @@ const styles = StyleSheet.create({
   },
   detailContent: { flex: 1 },
   detailHeader: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 16 },
-  detailTitle: { fontSize: 26, fontWeight: '600', color: '#222222', marginBottom: 8, letterSpacing: -0.5 },
+  titleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
+  detailTitle: { fontSize: 26, fontWeight: '600', color: '#222222', marginBottom: 8, letterSpacing: -0.5, flex: 1 },
+  detailTitleNoPhoto: { paddingRight: 8 },
+  favoriteButtonInline: { padding: 4, marginTop: 2 },
   detailRatingRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   starsContainer: { flexDirection: 'row', alignItems: 'center', marginRight: 8 },
   starsRow: { flexDirection: 'row', alignItems: 'center' },
@@ -1296,6 +1499,19 @@ const styles = StyleSheet.create({
   amenityItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
   amenityIcon: { fontSize: 20, width: 32 },
   amenityText: { fontSize: 16, color: '#222222', marginLeft: 8 },
+  amenityTagGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  amenityTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#FAF7F5',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  amenityTagEmoji: { fontSize: 14, marginRight: 6 },
+  amenityTagText: { fontSize: 13, fontWeight: '500', color: '#374151' },
   writeReviewButtonFull: {
     backgroundColor: Colors.coral,
     paddingVertical: 16,

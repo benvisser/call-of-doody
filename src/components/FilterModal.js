@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -10,36 +10,40 @@ import {
   Dimensions,
 } from 'react-native';
 import { Colors } from '../constants/colors';
+import { getAllAmenities } from '../constants/amenities';
+import { BATHROOM_TYPES } from '../constants/bathroomTypes';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-const AMENITY_OPTIONS = [
-  { key: 'accessible', icon: '♿️', label: 'Accessible' },
-  { key: 'changing_table', icon: '👶', label: 'Changing Table' },
-  { key: 'family', icon: '👨‍👩‍👧', label: 'Family Room' },
-  { key: 'toilets', icon: '🚽', label: 'Multiple Stalls' },
-  { key: 'paper_towels', icon: '🧻', label: 'Paper Towels' },
-  { key: 'hand_dryer', icon: '💨', label: 'Hand Dryer' },
+// Top amenities to show (expanded on "Show more")
+const TOP_AMENITY_IDS = [
+  'wheelchair_accessible',
+  'changing_table',
+  'toilet_paper',
+  'soap',
+  'privacy_lock',
+  'paper_towels',
+  'hand_dryer',
+  'multiple_stalls',
 ];
 
 const ACCESS_OPTIONS = [
   { key: 'all', label: 'All' },
-  { key: 'public', label: 'Public Only' },
-  { key: 'private', label: 'Private Only' },
+  { key: 'public', label: 'Public' },
+  { key: 'private', label: 'Private' },
 ];
 
 const CLEANLINESS_OPTIONS = [
   { key: 'any', label: 'Any', min: 0 },
-  { key: '3+', label: '3+', sublabel: 'Clean', min: 3 },
-  { key: '4+', label: '4+', sublabel: 'Very Clean', min: 4 },
-  { key: '5', label: '5', sublabel: 'Spotless ✨', min: 5 },
+  { key: '3+', label: '3+ ⭐', min: 3 },
+  { key: '4+', label: '4+ ⭐', min: 4 },
 ];
 
 const DISTANCE_OPTIONS = [
-  { key: 'any', label: 'Any', max: Infinity },
-  { key: '1', label: '< 1 mile', max: 1 },
-  { key: '5', label: '< 5 miles', max: 5 },
-  { key: '10', label: '< 10 miles', max: 10 },
+  { key: 'any', label: 'Any' },
+  { key: '1', label: '< 1 mi' },
+  { key: '5', label: '< 5 mi' },
+  { key: '10', label: '< 10 mi' },
 ];
 
 export default function FilterModal({
@@ -53,6 +57,7 @@ export default function FilterModal({
 }) {
   const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const [showAllAmenities, setShowAllAmenities] = useState(false);
 
   useEffect(() => {
     if (visible) {
@@ -104,9 +109,33 @@ export default function FilterModal({
     updateFilter('amenities', newAmenities);
   };
 
+  const toggleBathroomType = (typeId) => {
+    const currentTypes = filters.bathroomTypes || [];
+    const newTypes = currentTypes.includes(typeId)
+      ? currentTypes.filter((t) => t !== typeId)
+      : [...currentTypes, typeId];
+    updateFilter('bathroomTypes', newTypes);
+  };
+
   const handleClearAll = () => {
+    setShowAllAmenities(false);
     onClearAll();
   };
+
+  // Get amenities to display
+  const allAmenities = getAllAmenities();
+  const topAmenities = allAmenities.filter(a => TOP_AMENITY_IDS.includes(a.id));
+  const moreAmenities = allAmenities.filter(a => !TOP_AMENITY_IDS.includes(a.id));
+  const displayedAmenities = showAllAmenities ? allAmenities : topAmenities;
+
+  // Count active filters
+  const activeFilterCount = [
+    filters.accessType !== 'all' ? 1 : 0,
+    (filters.amenities || []).length,
+    (filters.bathroomTypes || []).length,
+    filters.cleanliness !== 'any' ? 1 : 0,
+    filters.distance !== 'any' ? 1 : 0,
+  ].reduce((a, b) => a + b, 0);
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={closeWithAnimation} statusBarTranslucent>
@@ -120,177 +149,180 @@ export default function FilterModal({
             { transform: [{ translateY: slideAnim }] },
           ]}
         >
-              {/* Header */}
-              <View style={styles.header}>
-                <TouchableOpacity onPress={closeWithAnimation} style={styles.closeButton}>
-                  <Text style={styles.closeButtonText}>✕</Text>
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>Filters</Text>
-                <View style={styles.closeButton} />
+          {/* Header */}
+          <View style={styles.header}>
+            <TouchableOpacity onPress={closeWithAnimation} style={styles.closeButton}>
+              <Text style={styles.closeButtonText}>✕</Text>
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>Filters</Text>
+            <View style={styles.closeButton} />
+          </View>
+
+          <ScrollView
+            style={styles.scrollView}
+            showsVerticalScrollIndicator={false}
+            bounces={true}
+          >
+            {/* Access Type Section */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Access Type</Text>
+              <View style={styles.tagGrid}>
+                {ACCESS_OPTIONS.map((option) => {
+                  const isSelected = filters.accessType === option.key;
+                  return (
+                    <TouchableOpacity
+                      key={option.key}
+                      style={[styles.tag, isSelected && styles.tagSelected]}
+                      onPress={() => updateFilter('accessType', option.key)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.tagText, isSelected && styles.tagTextSelected]}>
+                        {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
+            </View>
 
-              <ScrollView
-                style={styles.scrollView}
-                showsVerticalScrollIndicator={false}
-                bounces={true}
-              >
-                {/* Access Type Section */}
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Access Type</Text>
-                  <View style={styles.pillContainer}>
-                    {ACCESS_OPTIONS.map((option) => (
-                      <TouchableOpacity
-                        key={option.key}
-                        style={[
-                          styles.pill,
-                          filters.accessType === option.key && styles.pillSelected,
-                        ]}
-                        onPress={() => updateFilter('accessType', option.key)}
-                      >
-                        <Text
-                          style={[
-                            styles.pillText,
-                            filters.accessType === option.key && styles.pillTextSelected,
-                          ]}
-                        >
-                          {option.label}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
+            <View style={styles.divider} />
 
+            {/* Bathroom Type Section */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Bathroom Type</Text>
+              <View style={styles.tagGrid}>
+                {BATHROOM_TYPES.map((type) => {
+                  const isSelected = (filters.bathroomTypes || []).includes(type.id);
+                  return (
+                    <TouchableOpacity
+                      key={type.id}
+                      style={[styles.tag, isSelected && styles.tagSelected]}
+                      onPress={() => toggleBathroomType(type.id)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.tagEmoji}>{type.emoji}</Text>
+                      <Text style={[styles.tagText, isSelected && styles.tagTextSelected]}>
+                        {type.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={styles.divider} />
+
+            {/* Amenities Section */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Amenities</Text>
+              <View style={styles.tagGrid}>
+                {displayedAmenities.map((amenity) => {
+                  const isSelected = (filters.amenities || []).includes(amenity.id);
+                  return (
+                    <TouchableOpacity
+                      key={amenity.id}
+                      style={[styles.tag, isSelected && styles.tagSelected]}
+                      onPress={() => toggleAmenity(amenity.id)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.tagEmoji}>{amenity.emoji}</Text>
+                      <Text style={[styles.tagText, isSelected && styles.tagTextSelected]}>
+                        {amenity.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              {moreAmenities.length > 0 && (
+                <TouchableOpacity
+                  style={styles.showMoreButton}
+                  onPress={() => setShowAllAmenities(!showAllAmenities)}
+                >
+                  <Text style={styles.showMoreText}>
+                    {showAllAmenities ? 'Show less' : `Show ${moreAmenities.length} more`}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <View style={styles.divider} />
+
+            {/* Minimum Rating Section */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Minimum Rating</Text>
+              <View style={styles.tagGrid}>
+                {CLEANLINESS_OPTIONS.map((option) => {
+                  const isSelected = filters.cleanliness === option.key;
+                  return (
+                    <TouchableOpacity
+                      key={option.key}
+                      style={[styles.tag, isSelected && styles.tagSelected]}
+                      onPress={() => updateFilter('cleanliness', option.key)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.tagText, isSelected && styles.tagTextSelected]}>
+                        {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* Distance Section - only show if user location available */}
+            {hasUserLocation && (
+              <>
                 <View style={styles.divider} />
-
-                {/* Amenities Section */}
                 <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Amenities</Text>
-                  <View style={styles.amenitiesGrid}>
-                    {AMENITY_OPTIONS.map((amenity) => {
-                      const isSelected = (filters.amenities || []).includes(amenity.key);
+                  <Text style={styles.sectionTitle}>Distance</Text>
+                  <View style={styles.tagGrid}>
+                    {DISTANCE_OPTIONS.map((option) => {
+                      const isSelected = filters.distance === option.key;
                       return (
                         <TouchableOpacity
-                          key={amenity.key}
-                          style={[
-                            styles.amenityPill,
-                            isSelected && styles.amenityPillSelected,
-                          ]}
-                          onPress={() => toggleAmenity(amenity.key)}
+                          key={option.key}
+                          style={[styles.tag, isSelected && styles.tagSelected]}
+                          onPress={() => updateFilter('distance', option.key)}
+                          activeOpacity={0.7}
                         >
-                          <Text style={styles.amenityIcon}>{amenity.icon}</Text>
-                          <Text
-                            style={[
-                              styles.amenityLabel,
-                              isSelected && styles.amenityLabelSelected,
-                            ]}
-                          >
-                            {amenity.label}
+                          <Text style={[styles.tagText, isSelected && styles.tagTextSelected]}>
+                            {option.label}
                           </Text>
-                          {isSelected && (
-                            <View style={styles.checkmark}>
-                              <Text style={styles.checkmarkText}>✓</Text>
-                            </View>
-                          )}
                         </TouchableOpacity>
                       );
                     })}
                   </View>
                 </View>
+              </>
+            )}
 
-                <View style={styles.divider} />
+            <View style={{ height: 120 }} />
+          </ScrollView>
 
-                {/* Cleanliness Section */}
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Minimum Cleanliness</Text>
-                  <View style={styles.pillContainer}>
-                    {CLEANLINESS_OPTIONS.map((option) => (
-                      <TouchableOpacity
-                        key={option.key}
-                        style={[
-                          styles.cleanPill,
-                          filters.cleanliness === option.key && styles.pillSelected,
-                        ]}
-                        onPress={() => updateFilter('cleanliness', option.key)}
-                      >
-                        <Text
-                          style={[
-                            styles.pillText,
-                            filters.cleanliness === option.key && styles.pillTextSelected,
-                          ]}
-                        >
-                          {option.label}
-                        </Text>
-                        {option.sublabel && (
-                          <Text
-                            style={[
-                              styles.pillSubtext,
-                              filters.cleanliness === option.key && styles.pillSubtextSelected,
-                            ]}
-                          >
-                            {option.sublabel}
-                          </Text>
-                        )}
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-
-                <View style={styles.divider} />
-
-                {/* Distance Section - only show if user location available */}
-                {hasUserLocation && (
-                  <>
-                    <View style={styles.section}>
-                      <Text style={styles.sectionTitle}>Distance from you</Text>
-                      <View style={styles.pillContainer}>
-                        {DISTANCE_OPTIONS.map((option) => (
-                          <TouchableOpacity
-                            key={option.key}
-                            style={[
-                              styles.pill,
-                              filters.distance === option.key && styles.pillSelected,
-                            ]}
-                            onPress={() => updateFilter('distance', option.key)}
-                          >
-                            <Text
-                              style={[
-                                styles.pillText,
-                                filters.distance === option.key && styles.pillTextSelected,
-                              ]}
-                            >
-                              {option.label}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </View>
-
-                    <View style={styles.divider} />
-                  </>
-                )}
-
-                <View style={{ height: 120 }} />
-              </ScrollView>
-
-              {/* Bottom Action Bar */}
-              <View style={styles.bottomBar}>
-                <TouchableOpacity onPress={handleClearAll} style={styles.clearButton}>
-                  <Text style={styles.clearButtonText}>Clear all</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={closeWithAnimation} style={styles.showButton}>
-                  <Text style={styles.showButtonText}>
-                    Show {resultCount} restroom{resultCount !== 1 ? 's' : ''}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </Animated.View>
+          {/* Bottom Action Bar */}
+          <View style={styles.bottomBar}>
+            <TouchableOpacity onPress={handleClearAll} style={styles.clearButton}>
+              <Text style={styles.clearButtonText}>Clear all</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={closeWithAnimation} style={styles.showButton}>
+              <Text style={styles.showButtonText}>
+                Show {resultCount} result{resultCount !== 1 ? 's' : ''}
+              </Text>
+            </TouchableOpacity>
           </View>
+        </Animated.View>
+      </View>
     </Modal>
   );
 }
 
 // Export constants for use in MapScreen
-export { AMENITY_OPTIONS, ACCESS_OPTIONS, CLEANLINESS_OPTIONS, DISTANCE_OPTIONS };
+const AMENITY_OPTIONS = TOP_AMENITY_IDS.map(id => {
+  const amenity = getAllAmenities().find(a => a.id === id);
+  return amenity ? { key: amenity.id, icon: amenity.emoji, label: amenity.name } : null;
+}).filter(Boolean);
+
+export { AMENITY_OPTIONS, ACCESS_OPTIONS, CLEANLINESS_OPTIONS, DISTANCE_OPTIONS, BATHROOM_TYPES };
 
 const styles = StyleSheet.create({
   backdrop: {
@@ -305,7 +337,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   modalContainer: {
-    height: SCREEN_HEIGHT * 0.9,
+    height: SCREEN_HEIGHT * 0.85,
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
@@ -339,102 +371,61 @@ const styles = StyleSheet.create({
   },
   section: {
     paddingHorizontal: 24,
-    paddingVertical: 24,
+    paddingVertical: 20,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     color: '#222222',
-    marginBottom: 16,
+    marginBottom: 14,
   },
   divider: {
     height: 1,
     backgroundColor: '#EBEBEB',
     marginHorizontal: 24,
   },
-  pillContainer: {
+  // Tag/Chip styles
+  tagGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 8,
   },
-  pill: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: '#DDDDDD',
-    backgroundColor: '#FFFFFF',
-  },
-  pillSelected: {
-    backgroundColor: Colors.coral,
-    borderColor: Colors.coral,
-  },
-  pillText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#222222',
-  },
-  pillTextSelected: {
-    color: '#FFFFFF',
-  },
-  pillSubtext: {
-    fontSize: 11,
-    color: '#717171',
-    marginTop: 2,
-  },
-  pillSubtextSelected: {
-    color: 'rgba(255, 255, 255, 0.8)',
-  },
-  cleanPill: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: '#DDDDDD',
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-  },
-  amenitiesGrid: {
-    gap: 12,
-  },
-  amenityPill: {
+  tag: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#DDDDDD',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
     backgroundColor: '#FFFFFF',
   },
-  amenityPillSelected: {
-    borderColor: Colors.coral,
-    backgroundColor: Colors.coralLight,
+  tagSelected: {
+    borderColor: '#5D4037',
+    backgroundColor: '#FAF7F5',
   },
-  amenityIcon: {
-    fontSize: 20,
-    marginRight: 12,
+  tagEmoji: {
+    fontSize: 14,
+    marginRight: 6,
   },
-  amenityLabel: {
-    flex: 1,
-    fontSize: 15,
-    color: '#222222',
-  },
-  amenityLabelSelected: {
+  tagText: {
+    fontSize: 14,
     fontWeight: '500',
+    color: '#374151',
   },
-  checkmark: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: Colors.coral,
-    alignItems: 'center',
-    justifyContent: 'center',
+  tagTextSelected: {
+    color: '#5D4037',
+    fontWeight: '600',
   },
-  checkmarkText: {
-    color: '#FFFFFF',
+  showMoreButton: {
+    marginTop: 12,
+    alignSelf: 'flex-start',
+  },
+  showMoreText: {
     fontSize: 14,
     fontWeight: '600',
+    color: '#5D4037',
+    textDecorationLine: 'underline',
   },
   bottomBar: {
     position: 'absolute',

@@ -206,41 +206,92 @@ function generateGeohash(lat, lng) {
 }
 
 /**
- * Infer amenities based on location type
+ * Infer bathroom types based on location type
+ * Returns array of bathroom type IDs matching src/constants/bathroomTypes.js
  */
-function inferAmenities(placeType) {
-  const amenities = [];
+function inferBathroomTypes(placeType) {
+  switch (placeType) {
+    case 'shopping_mall':
+    case 'convention_center':
+    case 'stadium':
+    case 'museum':
+      // Large venues typically have all bathroom types
+      return ['mens', 'womens', 'family'];
+    case 'library':
+      // Libraries often have family-friendly and gender-neutral options
+      return ['mens', 'womens', 'all_gender', 'family'];
+    case 'cafe':
+    case 'grocery_store':
+      // Smaller establishments often have single all-gender restrooms
+      return ['all_gender'];
+    case 'park':
+    case 'transit_station':
+      // Public facilities typically have separate men's and women's
+      return ['mens', 'womens'];
+    default:
+      // Default to separate men's and women's
+      return ['mens', 'womens'];
+  }
+}
+
+/**
+ * Infer amenities based on location type
+ * Returns array of amenity IDs matching src/constants/amenities.js
+ */
+function inferAmenityIds(placeType) {
+  const amenityIds = [];
+
+  // Common amenities for most places
+  amenityIds.push('toilet_paper', 'soap', 'privacy_lock');
 
   switch (placeType) {
     case 'shopping_mall':
-      amenities.push('changing_table', 'family_room', 'multiple_stalls', 'accessible', 'hand_dryer');
+      amenityIds.push('changing_table', 'family_restroom', 'multiple_stalls', 'wheelchair_accessible', 'hand_dryer', 'mirror', 'good_lighting');
       break;
     case 'library':
-      amenities.push('accessible', 'changing_table', 'family_room', 'gender_neutral');
+      amenityIds.push('wheelchair_accessible', 'changing_table', 'gender_neutral', 'free_access', 'good_lighting');
       break;
     case 'museum':
-      amenities.push('accessible', 'changing_table', 'family_room');
+      amenityIds.push('wheelchair_accessible', 'changing_table', 'family_restroom', 'good_lighting');
       break;
     case 'stadium':
     case 'convention_center':
-      amenities.push('accessible', 'multiple_stalls', 'hand_dryer');
+      amenityIds.push('wheelchair_accessible', 'multiple_stalls', 'hand_dryer');
       break;
     case 'transit_station':
-      amenities.push('accessible', 'multiple_stalls');
+      amenityIds.push('wheelchair_accessible', 'multiple_stalls', 'free_access');
       break;
     case 'cafe':
-      amenities.push('single_stall', 'paper_towels');
+      amenityIds.push('single_occupancy', 'paper_towels', 'mirror');
       break;
     case 'grocery_store':
-      amenities.push('accessible', 'single_stall');
+      amenityIds.push('wheelchair_accessible', 'single_occupancy', 'free_access');
       break;
     case 'park':
-      amenities.push('accessible');
+      amenityIds.push('wheelchair_accessible', 'free_access');
       break;
     default:
-      amenities.push('accessible');
+      amenityIds.push('wheelchair_accessible');
   }
 
+  return amenityIds;
+}
+
+/**
+ * Convert amenity IDs to voting structure for Firestore
+ */
+function initializeAmenities(amenityIds) {
+  const amenities = {};
+  amenityIds.forEach(id => {
+    amenities[id] = {
+      votes: 0,
+      confirmVotes: 0,
+      denyVotes: 0,
+      percentage: 0,
+      status: 'unverified',
+      lastUpdated: new Date(),
+    };
+  });
   return amenities;
 }
 
@@ -282,6 +333,8 @@ async function seedPriorityLocations() {
     const restroomRef = doc(collection(db, 'restrooms'));
 
     try {
+      const amenityIds = inferAmenityIds(location.type);
+      const bathroomTypes = inferBathroomTypes(location.type);
       await setDoc(restroomRef, {
         id: restroomRef.id,
         name: location.name,
@@ -293,13 +346,20 @@ async function seedPriorityLocations() {
         neighborhood: 'Uptown',
         type: location.type,
         isPublic: true,
-        amenities: inferAmenities(location.type),
-        rating: 0,
-        reviews: 0,
+        bathroomTypes: bathroomTypes,
+        amenities: initializeAmenities(amenityIds),
+        confirmedAmenities: [], // Will be populated as community verifies
+        // 4-category rating system
+        ratings: {
+          cleanliness: 0,
+          supplies: 0,
+          accessibility: 0,
+          waitTime: 0,
+        },
+        rating: 0, // Overall rating (average of 4 categories)
+        reviewCount: 0,
+        // Keep cleanliness for backwards compatibility
         cleanliness: 0,
-        supplies: 0,
-        accessibility: 0,
-        waitTime: 0,
         imageUrl: null,
         source: 'manual_curated',
         notes: location.notes || '',
@@ -413,6 +473,8 @@ async function addPlacesToFirestore(places) {
     const restroomRef = doc(collection(db, 'restrooms'));
 
     try {
+      const amenityIds = inferAmenityIds(place.type);
+      const bathroomTypes = inferBathroomTypes(place.type);
       await setDoc(restroomRef, {
         id: restroomRef.id,
         name: place.name,
@@ -424,13 +486,20 @@ async function addPlacesToFirestore(places) {
         neighborhood: 'Uptown',
         type: place.type,
         isPublic: true,
-        amenities: inferAmenities(place.type),
-        rating: 0,
-        reviews: 0,
+        bathroomTypes: bathroomTypes,
+        amenities: initializeAmenities(amenityIds),
+        confirmedAmenities: [], // Will be populated as community verifies
+        // 4-category rating system
+        ratings: {
+          cleanliness: 0,
+          supplies: 0,
+          accessibility: 0,
+          waitTime: 0,
+        },
+        rating: 0, // Overall rating (average of 4 categories)
+        reviewCount: 0,
+        // Keep cleanliness for backwards compatibility
         cleanliness: 0,
-        supplies: 0,
-        accessibility: 0,
-        waitTime: 0,
         imageUrl: place.photoReference
           ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=${place.photoReference}&key=${apiKey}`
           : null,
