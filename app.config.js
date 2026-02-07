@@ -51,7 +51,15 @@ export default {
       favicon: "./assets/favicon.png"
     },
     plugins: [
-      "expo-build-properties"
+      [
+        "expo-build-properties",
+        {
+          ios: {
+            useFrameworks: "static"
+          }
+        }
+      ],
+      "./plugins/withModularHeaders"
     ],
     extra: {
       eas: {

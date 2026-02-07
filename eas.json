@@ -19,7 +19,10 @@
       "distribution": "internal"
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "USE_MODULAR_HEADERS": "1"
+      }
     }
   },
   "submit": {
